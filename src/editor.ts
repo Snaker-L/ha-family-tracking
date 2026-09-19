@@ -43,14 +43,9 @@ export class FamilyTrackingCardEditor extends LitElement implements LovelaceCard
     this._config = config;
   }
 
-  /** Defaults are shown in the form but only written once the user edits. */
+  /** Only the title is left in the form; the switches are drawn below it. */
   private get _data(): Record<string, unknown> {
-    return {
-      show_stays: DEFAULTS.show_stays,
-      show_zones: DEFAULTS.show_zones,
-      geocode: DEFAULTS.geocode,
-      ...this._config,
-    };
+    return { ...this._config };
   }
 
   protected override render(): TemplateResult | typeof nothing {
@@ -64,7 +59,7 @@ export class FamilyTrackingCardEditor extends LitElement implements LovelaceCard
         .computeLabel=${(entry: { name: string }) => this._t(`editor.${entry.name}`)}
         @value-changed=${this._valueChanged}
       ></ha-form>
-      ${this._renderLookups()}
+      ${this._renderSwitches()}
       ${this._renderStyles()} ${this._renderColors()} ${this._renderZones()}
       <p class="note">
         ${this._t("editor.note")}
@@ -73,40 +68,48 @@ export class FamilyTrackingCardEditor extends LitElement implements LovelaceCard
   }
 
   /**
-   * The two lookup switches, side by side, built by hand for one reason: each
-   * needs an info icon.
+   * Every switch the card has, drawn by hand rather than through `ha-form`.
    *
-   * `ha-form` takes a label as a string, so there is nowhere to hang one, and
-   * both switches need more explanation than a label holds. "Resolve addresses"
-   * does not say which service is asked or where the answer is kept; "Name
-   * places" says what it does but not what it will do to the stay list.
+   * Two reasons, and the second only showed up on a phone. A form label is a
+   * plain string, so there is nowhere to hang the info icon that "Resolve
+   * addresses" and "Name places" both need -- neither says enough on its own.
+   * And once two switches had moved out of the form's grid, they sat at a
+   * different spacing from the two still in it, which no amount of matching
+   * from outside could fix: the gap belongs to the form's own shadow root.
    *
-   * The note appears on hover and is drawn here rather than left to the
-   * browser's own tooltip: `title` renders as a small unstyled box after a
-   * delay, truncates where it pleases, and cannot be reached by keyboard. This
-   * one also answers to focus, so tabbing to the icon shows it.
+   * The notes appear on hover and are drawn here rather than left to `title`:
+   * the browser's tooltip is a small unstyled box that arrives late, truncates
+   * where it pleases and cannot be reached by keyboard. This one answers to
+   * focus as well.
    */
-  private _renderLookups(): TemplateResult {
-    const option = (key: "geocode" | "places", value: boolean) => html`
+  private _renderSwitches(): TemplateResult {
+    const config = this._config as FamilyTrackingCardConfig;
+
+    const option = (
+      key: "show_stays" | "show_zones" | "geocode" | "places",
+      value: boolean,
+      explained: boolean
+    ) => html`
       <div class="opt">
         <span class="opt-label">${this._t(`editor.${key}`)}</span>
-        <button class="opt-info" aria-label=${this._t(`editor.${key}_info`)}>
-          <svg viewBox="0 0 24 24" aria-hidden="true">
-            <path
-              d="M11 9h2V7h-2m1 13c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59
-                 8-8 8m0-18A10 10 0 0 0 2 12a10 10 0 0 0 10 10 10 10 0 0 0 10-10A10
-                 10 0 0 0 12 2m-1 15h2v-6h-2v6Z"
-            />
-          </svg>
-        </button>
-        <span class="opt-note" role="tooltip">${this._t(`editor.${key}_explain`)}</span>
+        ${explained
+          ? html`
+              <button class="opt-info" aria-label=${this._t(`editor.${key}_info`)}>
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path
+                    d="M11 9h2V7h-2m1 13c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59
+                       8-8 8m0-18A10 10 0 0 0 2 12a10 10 0 0 0 10 10 10 10 0 0 0 10-10A10
+                       10 0 0 0 12 2m-1 15h2v-6h-2v6Z"
+                  />
+                </svg>
+              </button>
+              <span class="opt-note" role="tooltip">${this._t(`editor.${key}_explain`)}</span>
+            `
+          : nothing}
         <ha-switch
           .checked=${value}
           @change=${(ev: Event) =>
-            this._emit({
-              ...(this._config as FamilyTrackingCardConfig),
-              [key]: (ev.target as HTMLInputElement).checked,
-            })}
+            this._emit({ ...config, [key]: (ev.target as HTMLInputElement).checked })}
         ></ha-switch>
       </div>
     `;
@@ -114,8 +117,10 @@ export class FamilyTrackingCardEditor extends LitElement implements LovelaceCard
     return html`
       <div class="lookups">
         <div class="opt-grid">
-          ${option("geocode", this._config?.geocode ?? DEFAULTS.geocode)}
-          ${option("places", this._config?.places ?? DEFAULTS.places)}
+          ${option("show_stays", this._config?.show_stays ?? DEFAULTS.show_stays, false)}
+          ${option("show_zones", this._config?.show_zones ?? DEFAULTS.show_zones, false)}
+          ${option("geocode", this._config?.geocode ?? DEFAULTS.geocode, true)}
+          ${option("places", this._config?.places ?? DEFAULTS.places, true)}
         </div>
       </div>
     `;
@@ -766,17 +771,31 @@ export class FamilyTrackingCardEditor extends LitElement implements LovelaceCard
 
     /* Mirrors the grid ha-form draws above, so these two do not read as a
        different kind of setting than the two switches over them. */
-    /* Positioned, so the notes inside the cells hang from the row rather than
-       from their own column -- a 210 px column is too narrow to read in. */
+    /*
+     * Flush with the form above, not inset from it.
+     *
+     * A padding here looked harmless on a wide screen and was not: on a phone
+     * every row is its own line, and two of them starting 16 px further in
+     * read as sub-items of the switch above rather than as siblings of it.
+     *
+     * Positioned, so the notes inside the cells hang from the row rather than
+     * from their own column -- a 210 px column is too narrow to read in.
+     */
     .lookups {
       position: relative;
-      padding: 0 16px 8px;
+      padding: 0 0 8px;
     }
 
+    /*
+     * One gap for every row, which is only possible now that all four switches
+     * are drawn here. Tighter than ha-form's own spacing on purpose: four
+     * switches under each other on a phone is a lot of scrolling at 64 px a
+     * row, and they belong together anyway.
+     */
     .opt-grid {
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
-      gap: 8px 16px;
+      gap: 4px 8px;
     }
 
     .opt {
@@ -824,8 +843,8 @@ export class FamilyTrackingCardEditor extends LitElement implements LovelaceCard
        note appears. It lies over what follows, the way a tooltip should. */
     .opt-note {
       position: absolute;
-      left: 16px;
-      right: 16px;
+      left: 0;
+      right: 0;
       top: calc(100% - 4px);
       z-index: 2;
       display: none;

@@ -1,4 +1,4 @@
-export const CARD_VERSION = "0.7.0";
+export const CARD_VERSION = "0.7.1";
 
 export const CARD_TAG = "family-tracking-card";
 export const EDITOR_TAG = "family-tracking-card-editor";
@@ -507,17 +507,15 @@ export function editedLayer(previous: StyleConfig, next: StyleConfig): MapLayerI
  * objects in existing configurations are the fossils of exactly that. A grid
  * with an empty name hands the whole object down and keeps the keys flat.
  */
-export const EDITOR_SCHEMA = [
-  { name: "title", selector: { text: {} } },
-  {
-    name: "",
-    type: "grid",
-    schema: [
-      { name: "show_stays", selector: { boolean: {} } },
-      { name: "show_zones", selector: { boolean: {} } },
-    ],
-  },
-] as const;
+/**
+ * What is left for `ha-form`: the title, and nothing else.
+ *
+ * The switches used to live here too, in a grid. Two of them then needed an
+ * info icon, which a form label -- a plain string -- cannot carry, and the two
+ * that moved out ended up with a different spacing from the two that stayed.
+ * Drawing all four by hand is what makes the rhythm even.
+ */
+export const EDITOR_SCHEMA = [{ name: "title", selector: { text: {} } }] as const;
 
 /**
  * Keys no configuration should still carry.

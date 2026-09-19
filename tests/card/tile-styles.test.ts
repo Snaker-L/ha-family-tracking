@@ -305,24 +305,27 @@ describe("Zonen-Darstellung", () => {
  * `ha-form` reads a named group from `data[name]` and writes it back there. A
  * grid called "toggles" therefore stored the switches as
  * `toggles: { show_zones: true }`, which the card never reads -- the switch
- * showed its own nested value and looked on while nothing happened. Only an
- * empty name keeps the keys flat, so this is worth pinning down.
+ * showed its own nested value and looked on while nothing happened.
+ *
+ * The switches have since left the form altogether: they needed info icons a
+ * label cannot carry, and half in and half out gave them two different row
+ * spacings. Only the title is left, and it must stay flat for the same reason
+ * the grid had to.
  */
 describe("Editor-Schema", () => {
-  it("verschachtelt kein Raster", () => {
-    for (const entry of EDITOR_SCHEMA) {
-      if ((entry as { type?: string }).type === "grid") strictEqual(entry.name, "");
-    }
+  it("enthält nur noch den Titel", () => {
+    deepStrictEqual(
+      EDITOR_SCHEMA.map((entry) => entry.name),
+      ["title"]
+    );
   });
 
-  it("enthält die Schalter, die die Karte auch liest", () => {
-    const grid = EDITOR_SCHEMA.find((e) => (e as { type?: string }).type === "grid");
-    const names = ((grid as { schema: readonly { name: string }[] }).schema ?? []).map(
-      (e) => e.name
-    );
-    // `geocode` and `places` are deliberately not here: both are rendered by
-    // hand so each can carry an info icon, which `ha-form` has no room for.
-    deepStrictEqual([...names], ["show_stays", "show_zones"]);
+  it("verschachtelt nichts", () => {
+    // A group would nest its values under its own name, and the card reads the
+    // keys flat. Nothing here has a type at all, so nothing can.
+    for (const entry of EDITOR_SCHEMA) {
+      strictEqual((entry as { type?: string }).type, undefined);
+    }
   });
 
   it("nennt die Altlasten, die beim Speichern entfernt werden", () => {
