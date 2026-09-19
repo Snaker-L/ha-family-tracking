@@ -88,9 +88,21 @@ const en: Record<string, string> = {
   // -- editor -------------------------------------------------------------
   "editor.title": "Title",
   "editor.show_stays": "Show the stay list",
-  "editor.show_zones": "Show zones on the map",
-  "editor.geocode": "Resolve addresses (Nominatim)",
-  "editor.geocode_email": "Contact address for Nominatim",
+  "editor.show_zones": "Show zones",
+  "editor.geocode": "Resolve addresses",
+  "editor.places": "Name places",
+  "editor.places_info": "What is recognised?",
+  "editor.places_explain":
+    "Where a stay falls inside something with a name, that name is shown instead of the " +
+    "street: shopping centres, department stores, airports, stations, hospitals, " +
+    "universities, schools, stadiums, museums, zoos and parks. The larger one wins, so a " +
+    "café inside a shopping centre reads as the centre.",
+  "editor.geocode_info": "What does this do?",
+  "editor.geocode_explain":
+    "Positions outside a zone are turned into a readable address by Nominatim, the search " +
+    "service of OpenStreetMap. Home Assistant asks on the card's behalf and keeps the " +
+    "answer, so every browser in the house shares one lookup. Off, stays outside a zone " +
+    "show their coordinates.",
   "editor.map_height": "Map height",
   "editor.height_fixed": "Fixed height",
   "editor.height_fill": "Fill the available space",
@@ -181,9 +193,21 @@ const de: Record<string, string> = {
 
   "editor.title": "Titel",
   "editor.show_stays": "Aufenthaltsliste anzeigen",
-  "editor.show_zones": "Zonen auf der Karte anzeigen",
-  "editor.geocode": "Adressen auflösen (Nominatim)",
-  "editor.geocode_email": "Kontakt-Adresse für Nominatim",
+  "editor.show_zones": "Zonen anzeigen",
+  "editor.geocode": "Adressen auflösen",
+  "editor.places": "Orte benennen",
+  "editor.places_info": "Was wird erkannt?",
+  "editor.places_explain":
+    "Liegt ein Aufenthalt in etwas Benanntem, steht dieser Name statt der Straße: " +
+    "Einkaufszentren, Kaufhäuser, Flughäfen, Bahnhöfe, Krankenhäuser, Universitäten, " +
+    "Schulen, Stadien, Museen, Zoos und Parks. Das Größere gewinnt — ein Café im " +
+    "Einkaufszentrum erscheint als das Zentrum.",
+  "editor.geocode_info": "Was macht das?",
+  "editor.geocode_explain":
+    "Positionen außerhalb einer Zone werden von Nominatim, dem Suchdienst von " +
+    "OpenStreetMap, in eine lesbare Adresse übersetzt. Home Assistant fragt für die Karte " +
+    "an und behält die Antwort, damit alle Geräte im Haus sich eine Abfrage teilen. " +
+    "Ausgeschaltet zeigen Aufenthalte außerhalb einer Zone ihre Koordinaten.",
   "editor.map_height": "Kartenhöhe",
   "editor.height_fixed": "Feste Höhe",
   "editor.height_fill": "Verfügbaren Platz füllen",

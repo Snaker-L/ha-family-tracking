@@ -538,8 +538,8 @@ export class FamilyTrackingCard extends LitElement {
         if (this._labels[key]) continue;
 
         const label = await reverseGeocode(stay.lat, stay.lon, {
-          email: this._config?.geocode_email,
           language: this.hass?.locale?.language ?? this.hass?.language,
+          places: this._config?.places ?? DEFAULTS.places,
           callWS: this.hass?.callWS?.bind(this.hass),
         });
         if (token !== this._loadToken) return;

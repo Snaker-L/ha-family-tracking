@@ -29,6 +29,13 @@ export interface GeocodeOptions {
   email?: string;
   language?: string;
   /**
+   * Whether to ask what the coordinate lies inside. With it, a stay in a
+   * shopping centre reads as the centre rather than as the street beside it or
+   * whichever shop happens to be nearest. Off, nothing is asked of the second
+   * service at all.
+   */
+  places?: boolean;
+  /**
    * Home Assistant's websocket call. When the Family Tracking integration is
    * installed it answers `family_tracking/geocode`, and then the lookup belongs
    * there: one cache for every browser in the house instead of one per device,
@@ -59,6 +66,7 @@ async function viaServer(
       latitude: lat,
       longitude: lon,
       language: options.language,
+      places: options.places !== false,
     });
     serverGeocoding = true;
     return result?.label || undefined;
@@ -90,6 +98,17 @@ interface CacheEntry {
 
 export const cacheKeyFor = (lat: number, lon: number): string =>
   `${lat.toFixed(CACHE_PRECISION)},${lon.toFixed(CACHE_PRECISION)}`;
+
+/**
+ * The cache key for one lookup.
+ *
+ * The setting is part of it. The same coordinate has two right answers -- the
+ * place and the address -- and without this, turning the option off would go
+ * on showing the place it had already stored, which reads like the switch does
+ * nothing.
+ */
+const entryKeyFor = (lat: number, lon: number, places: boolean): string =>
+  places ? cacheKeyFor(lat, lon) : `${cacheKeyFor(lat, lon)}|addr`;
 
 /**
  * Condenses a Nominatim address object into one readable line.
@@ -171,7 +190,7 @@ export async function reverseGeocode(
   lon: number,
   options: GeocodeOptions = {}
 ): Promise<string | undefined> {
-  const key = cacheKeyFor(lat, lon);
+  const key = entryKeyFor(lat, lon, options.places !== false);
   const hit = cache().get(key);
   if (hit) return hit.label;
 

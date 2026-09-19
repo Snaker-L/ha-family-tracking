@@ -320,11 +320,17 @@ describe("Editor-Schema", () => {
     const names = ((grid as { schema: readonly { name: string }[] }).schema ?? []).map(
       (e) => e.name
     );
-    deepStrictEqual([...names], ["show_stays", "show_zones", "geocode"]);
+    // `geocode` and `places` are deliberately not here: both are rendered by
+    // hand so each can carry an info icon, which `ha-form` has no room for.
+    deepStrictEqual([...names], ["show_stays", "show_zones"]);
   });
 
   it("nennt die Altlasten, die beim Speichern entfernt werden", () => {
-    deepStrictEqual([...OBSOLETE_KEYS], ["toggles", "layers"]);
+    // `geocode_email` was a real option once: it identified the card to
+    // Nominatim back when the card asked Nominatim itself. The integration
+    // does the asking now, so the field only offered somewhere to type an
+    // address that nothing would read.
+    deepStrictEqual([...OBSOLETE_KEYS], ["toggles", "layers", "geocode_email"]);
   });
 });
 

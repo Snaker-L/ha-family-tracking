@@ -9,11 +9,11 @@ a map card, shipped with it, that shows the day as a readable list of stays
 instead of raw coordinates.
 
 <p>
-  <img src="https://raw.githubusercontent.com/Snaker-L/ha-family-tracking/main/docs/screenshot-card.png?v=0.6.0" alt="The card: person chips, the range menu, a map with a track, and the stay list below" width="355">
-  <img src="https://raw.githubusercontent.com/Snaker-L/ha-family-tracking/main/docs/screenshot-satellite.jpg?v=0.6.0" alt="The same card on satellite tiles, with the view unchanged" width="355">
+  <img src="https://raw.githubusercontent.com/Snaker-L/ha-family-tracking/main/docs/screenshot-card.png?v=0.7.0" alt="The card: person chips, the range menu, a map with a track, and the stay list below" width="355">
+  <img src="https://raw.githubusercontent.com/Snaker-L/ha-family-tracking/main/docs/screenshot-satellite.jpg?v=0.7.0" alt="The same card on satellite tiles, with the view unchanged" width="355">
 </p>
 <p>
-  <img src="https://raw.githubusercontent.com/Snaker-L/ha-family-tracking/main/docs/screenshot-editor.png?v=0.6.0" alt="The card editor: toggles, map height, tile styles, a colour per person and an icon per zone" width="355">
+  <img src="https://raw.githubusercontent.com/Snaker-L/ha-family-tracking/main/docs/screenshot-editor.png?v=0.7.0" alt="The card editor: the two lookup switches, map height, tile styles, a colour per person and an icon per zone" width="355">
 </p>
 
 **One install, nothing to register.** The integration serves the card and keeps
@@ -119,7 +119,7 @@ Set at install and changeable afterwards under *Configure*:
 | `zone_icons` / `zone_colors` | map | – | Icon and colour per zone |
 | `hidden_zones` | list | `[]` | Zones the card leaves out |
 | `geocode` | boolean | `true` | Resolve addresses for stays |
-| `geocode_email` | string | – | Only used without the integration |
+| `places` | boolean | `true` | Show the name of the place a stay is in, where it has one, instead of its address |
 
 `hidden_persons` and `hidden_zones` store what is *excluded*, so anything added
 later shows up instead of going missing.
@@ -142,13 +142,19 @@ Tile styles — `street_style`: `osm`, `esri_gray` (follows your theme),
   again.
 - **The map re-frames only when you change who is on it.** A new time range,
   incoming positions and switching to satellite leave your view alone.
-- **A shopping centre is named, not addressed.** Reverse geocoding answers
-  "what is nearest", which in the Donauzentrum is a phone shop and in the Q19 a
-  coffee bar — and the street outside is no better, because nobody arranges to
-  meet at Wagramer Straße 94. So the integration also asks Overpass which
-  outline the fix falls *inside*, and a named shopping centre wins over both.
-  Only tightly bounded places count; see the note in
-  [`venue.py`](custom_components/family_tracking/venue.py).
+- **A place is named, not addressed.** Reverse geocoding answers "what is
+  nearest", which in the Donauzentrum is a phone shop and in the Q19 a coffee
+  bar — and the street outside is no better, because nobody arranges to meet at
+  Wagramer Straße 94. So the integration also asks Overpass what the fix falls
+  *inside*: a shopping centre, a hospital, a university, a station. Where two
+  answer at once — the centre and the unit within it — the larger one wins.
+  Administrative areas never count; every fix is inside a district and a city,
+  and neither says where somebody is.
+- **A stay is the middle of many samples, and indoors they scatter.** Forty
+  metres out is ordinary and puts the point outside the building, so the
+  integration also looks a short way around it — but only for the kind of place
+  that contains others. A café fifty metres away is somewhere else; a shopping
+  centre fifty metres away is the building you are standing in.
 - **Two services, one lookup.** Nominatim allows one request per second and
   asks for caching; Overpass is donated capacity. The integration keeps to
   both, asks them at the same time rather than one after the other, and caches

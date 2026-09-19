@@ -1,4 +1,4 @@
-export const CARD_VERSION = "0.6.1";
+export const CARD_VERSION = "0.7.0";
 
 export const CARD_TAG = "family-tracking-card";
 export const EDITOR_TAG = "family-tracking-card-editor";
@@ -337,6 +337,9 @@ export const DEFAULTS = {
   // Off by default: an existing card must not suddenly grow circles on its map.
   show_zones: false,
   geocode: true,
+  // On by default: a name beats an address wherever there is one, and the
+  // lookup is cached for the whole household.
+  places: true,
 };
 
 /** A tile source entered by hand, in the spirit of map-card's tile_layer_url. */
@@ -512,18 +515,21 @@ export const EDITOR_SCHEMA = [
     schema: [
       { name: "show_stays", selector: { boolean: {} } },
       { name: "show_zones", selector: { boolean: {} } },
-      { name: "geocode", selector: { boolean: {} } },
     ],
   },
-  { name: "geocode_email", selector: { text: { type: "email" } } },
 ] as const;
 
 /**
- * Keys written by that bug. They mirror real option names, so leaving them in
- * place means a configuration that permanently reads as if it said something
- * it does not. The card never looked at either of them.
+ * Keys no configuration should still carry.
+ *
+ * `toggles` and `layers` were written by a bug and mirror real option names, so
+ * leaving them in place means a configuration that permanently reads as if it
+ * said something it does not. `geocode_email` was real once: it identified the
+ * card to Nominatim back when the card asked Nominatim itself. The integration
+ * does the asking now and carries its own contact address, so the field only
+ * offered somewhere to type an address that nothing would read.
  */
-export const OBSOLETE_KEYS = ["toggles", "layers"] as const;
+export const OBSOLETE_KEYS = ["toggles", "layers", "geocode_email"] as const;
 
 /**
  * The map height a config asks for, or the default when it asks for nonsense.

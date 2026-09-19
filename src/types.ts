@@ -77,7 +77,7 @@ export interface FamilyTrackingCardConfig extends LovelaceCardConfig {
   hidden_zones?: string[];
   geocode?: boolean;
   /** Optional contact address appended to Nominatim requests (their usage policy). */
-  geocode_email?: string;
+  places?: boolean;
 }
 
 /** A single position sample taken from the recorder history. */

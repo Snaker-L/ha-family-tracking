@@ -64,10 +64,60 @@ export class FamilyTrackingCardEditor extends LitElement implements LovelaceCard
         .computeLabel=${(entry: { name: string }) => this._t(`editor.${entry.name}`)}
         @value-changed=${this._valueChanged}
       ></ha-form>
+      ${this._renderLookups()}
       ${this._renderStyles()} ${this._renderColors()} ${this._renderZones()}
       <p class="note">
         ${this._t("editor.note")}
       </p>
+    `;
+  }
+
+  /**
+   * The two lookup switches, side by side, built by hand for one reason: each
+   * needs an info icon.
+   *
+   * `ha-form` takes a label as a string, so there is nowhere to hang one, and
+   * both switches need more explanation than a label holds. "Resolve addresses"
+   * does not say which service is asked or where the answer is kept; "Name
+   * places" says what it does but not what it will do to the stay list.
+   *
+   * The note appears on hover and is drawn here rather than left to the
+   * browser's own tooltip: `title` renders as a small unstyled box after a
+   * delay, truncates where it pleases, and cannot be reached by keyboard. This
+   * one also answers to focus, so tabbing to the icon shows it.
+   */
+  private _renderLookups(): TemplateResult {
+    const option = (key: "geocode" | "places", value: boolean) => html`
+      <div class="opt">
+        <span class="opt-label">${this._t(`editor.${key}`)}</span>
+        <button class="opt-info" aria-label=${this._t(`editor.${key}_info`)}>
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path
+              d="M11 9h2V7h-2m1 13c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59
+                 8-8 8m0-18A10 10 0 0 0 2 12a10 10 0 0 0 10 10 10 10 0 0 0 10-10A10
+                 10 0 0 0 12 2m-1 15h2v-6h-2v6Z"
+            />
+          </svg>
+        </button>
+        <span class="opt-note" role="tooltip">${this._t(`editor.${key}_explain`)}</span>
+        <ha-switch
+          .checked=${value}
+          @change=${(ev: Event) =>
+            this._emit({
+              ...(this._config as FamilyTrackingCardConfig),
+              [key]: (ev.target as HTMLInputElement).checked,
+            })}
+        ></ha-switch>
+      </div>
+    `;
+
+    return html`
+      <div class="lookups">
+        <div class="opt-grid">
+          ${option("geocode", this._config?.geocode ?? DEFAULTS.geocode)}
+          ${option("places", this._config?.places ?? DEFAULTS.places)}
+        </div>
+      </div>
     `;
   }
 
@@ -712,6 +762,86 @@ export class FamilyTrackingCardEditor extends LitElement implements LovelaceCard
       display: block;
       width: 100%;
       min-width: 0;
+    }
+
+    /* Mirrors the grid ha-form draws above, so these two do not read as a
+       different kind of setting than the two switches over them. */
+    /* Positioned, so the notes inside the cells hang from the row rather than
+       from their own column -- a 210 px column is too narrow to read in. */
+    .lookups {
+      position: relative;
+      padding: 0 16px 8px;
+    }
+
+    .opt-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+      gap: 8px 16px;
+    }
+
+    .opt {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      min-height: 40px;
+    }
+
+    .opt-label {
+      color: var(--primary-text-color);
+      font-size: 14px;
+    }
+
+    .opt ha-switch {
+      margin-left: auto;
+    }
+
+    .opt-info {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 22px;
+      height: 22px;
+      padding: 0;
+      border: 0;
+      border-radius: 50%;
+      background: transparent;
+      color: var(--secondary-text-color);
+      cursor: help;
+    }
+
+    .opt-info:hover,
+    .opt-info:focus-visible {
+      color: var(--primary-color, #03a9f4);
+    }
+
+    .opt-info svg {
+      width: 18px;
+      height: 18px;
+      fill: currentColor;
+    }
+
+    /* Out of the flow whether shown or not, so the row does not move when the
+       note appears. It lies over what follows, the way a tooltip should. */
+    .opt-note {
+      position: absolute;
+      left: 16px;
+      right: 16px;
+      top: calc(100% - 4px);
+      z-index: 2;
+      display: none;
+      padding: 10px 12px;
+      border-radius: 8px;
+      background: var(--card-background-color, #fff);
+      border: 1px solid var(--divider-color, rgba(0, 0, 0, 0.12));
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.18);
+      color: var(--secondary-text-color);
+      font-size: 12px;
+      line-height: 1.5;
+    }
+
+    .opt-info:hover ~ .opt-note,
+    .opt-info:focus-visible ~ .opt-note {
+      display: block;
     }
 
     .colors-title {
