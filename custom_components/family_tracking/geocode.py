@@ -32,6 +32,7 @@ from .const import (
     OVERPASS_URL,
     STORAGE_KEY,
     STORAGE_VERSION,
+    VENUE_BACKOFF,
     VENUE_MIN_REQUEST_INTERVAL,
     VENUE_RETRY_STATUS,
     VENUE_TIMEOUT,
@@ -60,6 +61,8 @@ class Geocoder:
         self._lock = asyncio.Lock()
         self._last_request = 0.0
         self._last_venue = 0.0
+        #: Monotonic time before which Overpass is not to be asked again.
+        self._venue_quiet_until = 0.0
         self._save_handle: asyncio.TimerHandle | None = None
         self._dirty = False
 
@@ -87,47 +90,73 @@ class Geocoder:
         entry = self._cache.get(cache_key(latitude, longitude))
         if not entry:
             return None
-        return Address(**entry["address"])
+        return merge_venue(Address(**entry["address"]), entry.get("venue") or "")
 
     async def async_resolve(
-        self, latitude: float, longitude: float, language: str | None = None
+        self,
+        latitude: float,
+        longitude: float,
+        language: str | None = None,
+        places: bool = True,
     ) -> Address | None:
-        """The address for a position, from the cache when possible."""
+        """
+        What to call a position, from the cache where possible.
+
+        The address and the name of the enclosing place are stored side by side
+        rather than as one finished line. They answer different questions, the
+        caller decides which it wants, and a dashboard that asks for one must
+        not leave the other permanently unavailable to the next caller.
+        """
         key = cache_key(latitude, longitude)
-        if (hit := self._cache.get(key)) is not None:
-            return Address(**hit["address"])
+        entry = self._cache.get(key)
+        if entry is not None and (not places or "venue" in entry):
+            return self._compose(entry, places)
 
         async with self._lock:
-            # A second caller may have filled the cache while this one queued.
-            if (hit := self._cache.get(key)) is not None:
-                return Address(**hit["address"])
+            # Someone else may have filled it in while this call queued.
+            entry = self._cache.get(key)
+            if entry is not None and (not places or "venue" in entry):
+                return self._compose(entry, places)
 
-            # Two questions about the same spot, asked at once: what is the
-            # nearest thing called, and what is this spot inside of. They go to
-            # different services, so waiting for them one after the other would
-            # only add up the two waits.
-            address, venue = await asyncio.gather(
-                self._nominatim(latitude, longitude, language),
-                self._venue(latitude, longitude),
-            )
+            wanted = []
+            if entry is None:
+                wanted.append(self._nominatim(latitude, longitude, language))
+            if places:
+                wanted.append(self._venue(latitude, longitude))
+            # Both go to different services, so asking them at the same time
+            # costs the longer of the two waits rather than their sum.
+            answers = list(await asyncio.gather(*wanted))
 
-        address = merge_venue(address, venue or "")
-        if address is None:
+        address = Address(**entry["address"]) if entry is not None else answers.pop(0)
+        venue = answers.pop(0) if places else (entry or {}).get("venue")
+
+        if address is None and not venue:
             return None
 
-        # Only a definite answer is worth keeping. Where Overpass could not be
-        # asked, the address still goes back to the caller -- it is a usable
-        # line today -- but the next fix at this spot asks again instead of
-        # inheriting a label that was only ever second best.
+        stored: dict[str, Any] = {
+            "address": (address or Address(label="")).as_dict(),
+            "at": time.time(),
+            "schema": CACHE_SCHEMA,
+        }
+        # `None` means the question could not be put, which is not the same as
+        # "nothing is there". Storing it would freeze the street address in
+        # place for months over one busy moment at the other end.
         if venue is not None:
-            self._cache[key] = {
-                "address": address.as_dict(),
-                "at": time.time(),
-                "schema": CACHE_SCHEMA,
-            }
+            stored["venue"] = venue
+        elif entry is not None and "venue" in entry:
+            stored["venue"] = entry["venue"]
+
+        if address is not None:
+            self._cache[key] = stored
             self._dirty = True
             self._schedule_save()
-        return address
+
+        return merge_venue(address, venue or "")
+
+    @staticmethod
+    def _compose(entry: dict[str, Any], places: bool) -> Address:
+        address = Address(**entry["address"])
+        return merge_venue(address, entry.get("venue") or "") if places else address
 
     async def _nominatim(
         self, latitude: float, longitude: float, language: str | None
@@ -181,12 +210,17 @@ class Geocoder:
         holds for months, and the shopping centre would stay misnamed long after
         the service was happy again.
         """
+        if time.monotonic() < self._venue_quiet_until:
+            # Told to slow down recently. Asking anyway is how a busy signal
+            # turns into a block.
+            return None
+
         query = build_query(latitude, longitude)
 
-        # One retry, because the public instance turns a busy moment away with a
-        # 429 or a 504 and is usually fine seconds later. Beyond that it is not
-        # worth pressing: the address is already on screen, and the next fix at
-        # this spot will ask again.
+        # One retry. The commonest failure is a busy moment -- 429 or 504 --
+        # and the instance is usually fine seconds later. Beyond that it is not
+        # worth pressing: the address is already a usable line, and the next fix
+        # at this spot asks again.
         for attempt in (1, 2):
             wait = self._last_venue + VENUE_MIN_REQUEST_INTERVAL - time.monotonic()
             if wait > 0:
@@ -200,9 +234,19 @@ class Geocoder:
                     headers={"User-Agent": "home-assistant-family-tracking"},
                     timeout=VENUE_TIMEOUT,
                 ) as response:
-                    if response.status in VENUE_RETRY_STATUS and attempt == 1:
-                        _LOGGER.debug("Overpass is busy (%s), asking once more", response.status)
-                        continue
+                    if response.status in VENUE_RETRY_STATUS:
+                        if attempt == 1:
+                            _LOGGER.debug(
+                                "Overpass is busy (%s), asking once more", response.status
+                            )
+                            continue
+                        _LOGGER.debug(
+                            "Overpass is busy (%s), leaving it alone for %d s",
+                            response.status,
+                            VENUE_BACKOFF,
+                        )
+                        self._venue_quiet_until = time.monotonic() + VENUE_BACKOFF
+                        return None
                     if response.status != 200:
                         _LOGGER.debug("Overpass answered %s", response.status)
                         return None
@@ -213,6 +257,7 @@ class Geocoder:
                     payload = await response.json(content_type=None)
             except (ClientError, asyncio.TimeoutError, ValueError) as err:
                 _LOGGER.debug("Could not ask what encloses the fix: %s", err)
+                self._venue_quiet_until = time.monotonic() + VENUE_BACKOFF
                 return None
 
             return pick_name(payload)

@@ -73,10 +73,17 @@ STORAGE_VERSION: Final = 1
 #: they are a convenience, and keeping them would hide the very change that
 #: raised the number -- a shopping centre visited last week would go on
 #: reading as the street outside it.
-CACHE_SCHEMA: Final = 2
+CACHE_SCHEMA: Final = 3
 
 # --- enclosing places -------------------------------------------------------
 
+#: One instance, deliberately.
+#:
+#: Mirrors looked like the answer to the 429s and 504s the main instance hands
+#: out when busy, until one of them turned out to carry a single country: it
+#: answers "200, nothing found" for everywhere else, which is indistinguishable
+#: from "nothing encloses this fix" and would be cached as fact. A regional
+#: mirror is worse than no mirror.
 OVERPASS_URL: Final = "https://overpass-api.de/api/interpreter"
 
 #: Overpass is donated capacity, and containment queries are cheap only for the
@@ -92,6 +99,15 @@ VENUE_TIMEOUT: Final = 30
 #: Answers that mean "busy, not wrong". Worth one more ask; anything else is a
 #: real no.
 VENUE_RETRY_STATUS: Final = frozenset({429, 502, 503, 504})
+
+#: How long to leave Overpass alone after it says it is busy.
+#:
+#: Learned the hard way: a burst of queries against the public instance earns a
+#: 429, and carrying on regardless earns a block that outlasts the session. A
+#: dashboard opening with a dozen unresolved stays is exactly such a burst, so
+#: the first refusal stops the rest of them. Nothing is lost -- the address is
+#: shown meanwhile, and the names fill in on the next look.
+VENUE_BACKOFF: Final = 600
 
 # --- frontend ---------------------------------------------------------------
 

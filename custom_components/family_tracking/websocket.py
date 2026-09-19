@@ -35,6 +35,7 @@ def _any_geocoder(hass: HomeAssistant) -> Geocoder | None:
         vol.Required("latitude"): vol.Coerce(float),
         vol.Required("longitude"): vol.Coerce(float),
         vol.Optional("language"): vol.Any(str, None),
+        vol.Optional("places", default=True): bool,
     }
 )
 @websocket_api.async_response
@@ -46,5 +47,7 @@ async def _handle_geocode(
         connection.send_error(msg["id"], "not_ready", "Family Tracking is not set up")
         return
 
-    address = await geocoder.async_resolve(msg["latitude"], msg["longitude"], msg.get("language"))
+    address = await geocoder.async_resolve(
+        msg["latitude"], msg["longitude"], msg.get("language"), places=msg["places"]
+    )
     connection.send_result(msg["id"], address.as_dict() if address else None)
