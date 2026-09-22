@@ -68,12 +68,11 @@ const en: Record<string, string> = {
   "card.range_title": "Pick a range from the calendar",
   "card.range_menu": "Time range",
   "card.today": "Today",
-  "card.from": "From",
-  "card.to": "To",
-  "card.same_day": "same day",
-  "card.pick_start": "Pick a start date.",
+  "card.pick_start": "Pick a day, then a second for a span.",
   "card.reset": "Reset",
-  "card.apply": "Apply",
+  "card.done": "Done",
+  "card.month_previous": "Previous month",
+  "card.month_next": "Next month",
   "card.loading": "Loading history …",
   "card.stays": "Stays",
   "card.no_stays": "No stays in this range.",
@@ -89,8 +88,23 @@ const en: Record<string, string> = {
   "editor.title": "Title",
   "editor.show_stays": "Show the stay list",
   "editor.show_zones": "Show zones",
-  "editor.geocode": "Resolve addresses",
+  "editor.geocode": "Resolve coordinates",
   "editor.places": "Name places",
+  "editor.place_address": "Show the address in brackets",
+  "editor.stays_title": "Stays",
+  "editor.stay_radius": "Stay radius (m)",
+  "editor.stay_radius_info": "What counts as standing still?",
+  "editor.stay_radius_explain":
+    "How far somebody may wander and still be counted as staying put. Larger, and a " +
+    "walk through a shopping street becomes one stay; smaller, and the track keeps more " +
+    "of its detail but the list fills with short stops. Points inside a stay are drawn " +
+    "as its circle rather than as a line — none are thrown away.",
+  "editor.stay_minutes": "Shortest stay (min)",
+  "editor.stay_minutes_info": "How long is long enough?",
+  "editor.stay_minutes_explain":
+    "How long somebody has to stay put before it is worth a line of its own. Below " +
+    "this a pause stays part of the journey — waiting at a light does not belong in " +
+    "the list, waiting for a train does.",
   "editor.places_info": "What is recognised?",
   "editor.places_explain":
     "Where a stay falls inside something with a name, that name is shown instead of the " +
@@ -130,6 +144,9 @@ const en: Record<string, string> = {
     "The chips on the card only hide the others temporarily and leave the " +
     "configuration alone.",
   "editor.show_on_open": "Show {name} on open",
+  "editor.colour_hex": "Own colour, as a hex value",
+  "editor.cancel": "Cancel",
+  "editor.colour_hue": "Hue",
   "editor.colour_for": "Colour for {name}",
   "editor.automatic": "automatic",
   "editor.reset_colour": "Reset to the automatic colour",
@@ -173,12 +190,11 @@ const de: Record<string, string> = {
   "card.range_title": "Zeitraum über Kalender und Uhrzeit wählen",
   "card.range_menu": "Zeitraum",
   "card.today": "Heute",
-  "card.from": "Von",
-  "card.to": "Bis",
-  "card.same_day": "gleicher Tag",
-  "card.pick_start": "Mindestens ein Startdatum wählen.",
+  "card.pick_start": "Einen Tag wählen, für eine Spanne einen zweiten.",
   "card.reset": "Zurücksetzen",
-  "card.apply": "Anwenden",
+  "card.done": "Fertig",
+  "card.month_previous": "Voriger Monat",
+  "card.month_next": "Nächster Monat",
   "card.loading": "Lade Verlauf …",
   "card.stays": "Aufenthalte",
   "card.no_stays": "Keine Aufenthalte im Zeitraum.",
@@ -194,8 +210,24 @@ const de: Record<string, string> = {
   "editor.title": "Titel",
   "editor.show_stays": "Aufenthaltsliste anzeigen",
   "editor.show_zones": "Zonen anzeigen",
-  "editor.geocode": "Adressen auflösen",
+  "editor.geocode": "Koordinaten auflösen",
   "editor.places": "Orte benennen",
+  "editor.place_address": "Adresse in Klammern anzeigen",
+  "editor.stays_title": "Aufenthalte",
+  "editor.stay_radius": "Aufenthaltsradius (m)",
+  "editor.stay_radius_info": "Was gilt als Verweilen?",
+  "editor.stay_radius_explain":
+    "Wie weit man sich bewegen darf und trotzdem als verweilend gilt. Größer, und ein " +
+    "Bummel durch eine Einkaufsstraße wird zu einem einzigen Aufenthalt; kleiner, und " +
+    "die Spur behält mehr Details, dafür füllt sich die Liste mit kurzen Halten. Punkte " +
+    "innerhalb eines Aufenthalts erscheinen als dessen Kreis statt als Linie — " +
+    "verworfen wird keiner.",
+  "editor.stay_minutes": "Kürzester Aufenthalt (min)",
+  "editor.stay_minutes_info": "Ab wann zählt es?",
+  "editor.stay_minutes_explain":
+    "Wie lange jemand stehen bleiben muss, damit es eine eigene Zeile wert ist. " +
+    "Darunter bleibt die Pause Teil des Weges — an der Ampel warten gehört nicht in " +
+    "die Liste, auf den Zug warten schon.",
   "editor.places_info": "Was wird erkannt?",
   "editor.places_explain":
     "Liegt ein Aufenthalt in etwas Benanntem, steht dieser Name statt der Straße: " +
@@ -235,6 +267,9 @@ const de: Record<string, string> = {
     "als Spur. Die Chips in der Karte blenden die übrigen Personen nur " +
     "vorübergehend aus und ändern die Konfiguration nicht.",
   "editor.show_on_open": "{name} beim Öffnen anzeigen",
+  "editor.colour_hex": "Eigene Farbe als Hex-Wert",
+  "editor.cancel": "Abbrechen",
+  "editor.colour_hue": "Farbton",
   "editor.colour_for": "Farbe für {name}",
   "editor.automatic": "automatisch",
   "editor.reset_colour": "Auf die automatische Farbe zurücksetzen",

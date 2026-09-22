@@ -1,4 +1,4 @@
-export const CARD_VERSION = "0.7.1";
+export const CARD_VERSION = "0.8.0";
 
 export const CARD_TAG = "family-tracking-card";
 export const EDITOR_TAG = "family-tracking-card-editor";
@@ -226,6 +226,43 @@ export const PERSON_PALETTE = [
   "#fbc02d",
 ] as const;
 
+/**
+ * What the colour picker offers.
+ *
+ * The eight person colours first, because those are the ones already in use on
+ * the map, then eight that sit well beside them. A palette rather than a free
+ * wheel: on a map that has to stay readable, most of the colour space is a bad
+ * answer, and the hex field is there for the rest.
+ */
+export const COLOR_CHOICES = [
+  ...PERSON_PALETTE,
+  "#ef5350",
+  "#ab47bc",
+  "#5c6bc0",
+  "#26a69a",
+  "#9ccc65",
+  "#ffa726",
+  "#78909c",
+  "#455a64",
+] as const;
+
+/**
+ * A hex colour the card can use, or nothing.
+ *
+ * Accepts what people actually type: with or without the hash, upper or lower
+ * case, and the three-digit short form that CSS allows. Anything else is not
+ * guessed at -- a half-typed colour must not repaint the map on every
+ * keystroke.
+ */
+export function normalizeHex(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const raw = value.trim().replace(/^#/, "").toLowerCase();
+  if (/^[0-9a-f]{3}$/.test(raw)) {
+    return `#${raw[0]}${raw[0]}${raw[1]}${raw[1]}${raw[2]}${raw[2]}`;
+  }
+  return /^[0-9a-f]{6}$/.test(raw) ? `#${raw}` : undefined;
+}
+
 export function fallbackPersonColor(entityId: string): string {
   let hash = 0;
   for (let i = 0; i < entityId.length; i += 1) {
@@ -306,6 +343,43 @@ export const MIN_MAP_HEIGHT = 160;
 export const MAX_MAP_HEIGHT = 2000;
 
 /**
+ * What still counts as standing still, and for how long.
+ *
+ * Below 20 m every GPS wobble becomes its own stay; above 500 m a stay would
+ * swallow a whole neighbourhood. One minute is the shortest wait worth a line
+ * in the list, and beyond twelve hours a day has no stays left to show.
+ */
+export const MIN_STAY_RADIUS = 20;
+export const MAX_STAY_RADIUS = 500;
+export const MIN_STAY_MINUTES = 1;
+export const MAX_STAY_MINUTES = 720;
+
+/**
+ * The stay setting a config asks for, kept sane.
+ *
+ * Three cases, and they are not the same. Nothing at all -- an empty field, a
+ * key the config never had -- means the default. A number outside the range is
+ * pulled to the nearest end rather than thrown away, because somebody typing
+ * 5 into a metre field meant "small", not "give me 120". And anything that is
+ * not a number falls back to the default.
+ *
+ * `Number("")` and `Number(null)` are both 0, which is why the first case has
+ * to be settled before the arithmetic starts.
+ */
+function resolveNumber(value: unknown, fallback: number, min: number, max: number): number {
+  if (value === undefined || value === null || value === "") return fallback;
+  const n = Number(value);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.min(max, Math.max(min, Math.round(n)));
+}
+
+export const resolveStayRadius = (value: unknown): number =>
+  resolveNumber(value, DEFAULTS.stay_radius, MIN_STAY_RADIUS, MAX_STAY_RADIUS);
+
+export const resolveStayMinutes = (value: unknown): number =>
+  resolveNumber(value, DEFAULTS.stay_min_duration, MIN_STAY_MINUTES, MAX_STAY_MINUTES);
+
+/**
  * The window the card opens on: the current day from midnight, not the last 24
  * hours. Asked "where was everyone today", a rolling window answers with half of
  * yesterday, and the stay list then starts mid-evening for no reason anybody can
@@ -340,6 +414,10 @@ export const DEFAULTS = {
   // On by default: a name beats an address wherever there is one, and the
   // lookup is cached for the whole household.
   places: true,
+  // Off by default: the name is the answer to "where is she". The address is
+  // the answer to "how do I get there", which is a different question and not
+  // the one the stay list is usually asked.
+  place_address: false,
 };
 
 /** A tile source entered by hand, in the spirit of map-card's tile_layer_url. */

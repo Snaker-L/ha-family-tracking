@@ -137,3 +137,52 @@ describe("Startfenster der Karte", () => {
     deepStrictEqual(DEFAULTS.time_ranges, [1, 4, 6, 8, 12, 16, 18, 20, 22, 24]);
   });
 });
+
+/*
+ * Die Karte füllt nur noch die beiden Datumsfelder. Damit zwei Daten einen
+ * ganzen Zeitraum ergeben, müssen die fehlenden Uhrzeiten als Tagesränder
+ * gelesen werden -- sonst wäre "22.09. bis 22.09." eine Spanne von null.
+ */
+describe("Zeitraum nur aus Daten", () => {
+  it("nimmt einen einzelnen Tag von Mitternacht bis Mitternacht", () => {
+    deepStrictEqual(
+      resolveRange({ fromDate: "2026-09-22", toDate: "", fromTime: "", toTime: "" }),
+      { start: at(2026, 9, 22), end: at(2026, 9, 22, 23, 59, 59, 999) }
+    );
+  });
+
+  it("nimmt mehrere Tage ganz", () => {
+    deepStrictEqual(
+      resolveRange({ fromDate: "2026-09-19", toDate: "2026-09-22", fromTime: "", toTime: "" }),
+      { start: at(2026, 9, 19), end: at(2026, 9, 22, 23, 59, 59, 999) }
+    );
+  });
+
+  it("dreht eine verkehrt herum eingegebene Spanne um", () => {
+    const r = resolveRange({ fromDate: "2026-09-22", toDate: "2026-09-19", fromTime: "", toTime: "" })!;
+    strictEqual(r.start, at(2026, 9, 19));
+    strictEqual(r.end, at(2026, 9, 22, 23, 59, 59, 999));
+  });
+
+  it("ohne Startdatum kein Zeitraum", () => {
+    strictEqual(resolveRange({ fromDate: "", toDate: "2026-09-22", fromTime: "", toTime: "" }), undefined);
+  });
+});
+
+describe("Anzeige ganzer Tage", () => {
+  const ganz = (von: string, bis: string) =>
+    formatAbsoluteRange(resolveRange({ fromDate: von, toDate: bis, fromTime: "", toTime: "" })!, "de-AT");
+
+  it("nennt einen einzelnen Tag nur einmal", () => {
+    strictEqual(ganz("2026-09-22", ""), "22.09.");
+  });
+
+  it("nennt eine Spanne als zwei Daten", () => {
+    strictEqual(ganz("2026-09-19", "2026-09-22"), "19.09. – 22.09.");
+  });
+
+  it("zeigt Uhrzeiten nur, wenn welche gewählt wurden", () => {
+    const r = resolveRange({ fromDate: "2026-09-22", toDate: "", fromTime: "08:00", toTime: "17:30" })!;
+    ok(formatAbsoluteRange(r, "de-AT").includes("08:00"));
+  });
+});

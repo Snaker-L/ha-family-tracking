@@ -15,7 +15,14 @@
 
 import { TODAY, type TimeRange } from "./const";
 
-/** The four inputs, exactly as the form fields hold them. */
+/**
+ * The inputs, exactly as the form fields hold them.
+ *
+ * The card only fills the two dates -- a map is asked about days, not about
+ * office hours. The times stay in the shape because that is what makes two
+ * dates mean a whole span: an empty start reads as the first midnight, an
+ * empty end as the last moment of its day.
+ */
 export interface RangeFields {
   /** `YYYY-MM-DD`, as produced by `<input type="date">`. */
   fromDate: string;
@@ -70,8 +77,22 @@ export function resolveRange(fields: RangeFields): AbsoluteRange | undefined {
   const from = parseDate(fields.fromDate);
   if (!from) return undefined;
 
-  const to = fields.toDate === "" ? from : parseDate(fields.toDate);
-  if (!to) return undefined;
+  const toRaw = fields.toDate === "" ? from : parseDate(fields.toDate);
+  if (!toRaw) return undefined;
+
+  /*
+   * Dates first, times after.
+   *
+   * Entered the wrong way round, swapping the finished timestamps is not the
+   * same thing: "22.09. to 19.09." would come out as the last moment of the
+   * 19th through to the first of the 22nd, losing almost all of both edge
+   * days. Only visible once the clocks were gone and the edges became the
+   * whole day.
+   */
+  const reversed =
+    toRaw[0] < from[0] ||
+    (toRaw[0] === from[0] && (toRaw[1] < from[1] || (toRaw[1] === from[1] && toRaw[2] < from[2])));
+  const [first, last] = reversed ? [toRaw, from] : [from, toRaw];
 
   const fromTime = parseTime(fields.fromTime, [0, 0]);
   const toTime = parseTime(fields.toTime, [23, 59]);
@@ -81,13 +102,29 @@ export function resolveRange(fields: RangeFields): AbsoluteRange | undefined {
   // minute, an explicit one starts it.
   const endSeconds = fields.toTime === "" ? 59 : 0;
 
-  const start = new Date(from[0], from[1], from[2], fromTime[0], fromTime[1], 0, 0).getTime();
-  const end = new Date(to[0], to[1], to[2], toTime[0], toTime[1], endSeconds, 999).getTime();
+  const start = new Date(first[0], first[1], first[2], fromTime[0], fromTime[1], 0, 0).getTime();
+  const end = new Date(last[0], last[1], last[2], toTime[0], toTime[1], endSeconds, 999).getTime();
 
+  // Still possible on a single day with the clocks the wrong way round.
   return start <= end ? { start, end } : { start: end, end: start };
 }
 
 /** `15.09. 08:00 – 17:30`, or with both dates when the range spans days. */
+/** Whether a range starts at one midnight and ends at the last moment of another. */
+function wholeDays(range: AbsoluteRange): boolean {
+  const start = new Date(range.start);
+  const end = new Date(range.end);
+  return (
+    start.getHours() === 0 &&
+    start.getMinutes() === 0 &&
+    start.getSeconds() === 0 &&
+    start.getMilliseconds() === 0 &&
+    end.getHours() === 23 &&
+    end.getMinutes() === 59 &&
+    end.getSeconds() === 59
+  );
+}
+
 export function formatAbsoluteRange(range: AbsoluteRange, locale: string): string {
   const date = (at: number) =>
     new Date(at).toLocaleDateString(locale, { day: "2-digit", month: "2-digit" });
@@ -95,6 +132,14 @@ export function formatAbsoluteRange(range: AbsoluteRange, locale: string): strin
     new Date(at).toLocaleTimeString(locale, { hour: "2-digit", minute: "2-digit" });
 
   const sameDay = new Date(range.start).toDateString() === new Date(range.end).toDateString();
+
+  // Dates are all the card asks for now, so a span of whole days should not
+  // announce "12:00 AM – 11:59 PM" -- that is the absence of a time, spelled
+  // out twice.
+  if (wholeDays(range)) {
+    return sameDay ? date(range.start) : `${date(range.start)} – ${date(range.end)}`;
+  }
+
   if (sameDay) return `${date(range.start)} ${time(range.start)} – ${time(range.end)}`;
   return `${date(range.start)} ${time(range.start)} – ${date(range.end)} ${time(range.end)}`;
 }
@@ -106,7 +151,13 @@ export function toDateField(at: number): string {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
 }
 
-/** `HH:MM` for a time input. */
+/**
+ * `HH:MM` for a time input.
+ *
+ * The card picks whole days now and no longer calls this. Kept as the
+ * counterpart to `toDateField`: the field shape still carries times, and a
+ * range that wants them needs a way to write them.
+ */
 export function toTimeField(at: number): string {
   const date = new Date(at);
   const pad = (value: number) => String(value).padStart(2, "0");

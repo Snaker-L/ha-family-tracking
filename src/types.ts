@@ -78,6 +78,9 @@ export interface FamilyTrackingCardConfig extends LovelaceCardConfig {
   geocode?: boolean;
   /** Optional contact address appended to Nominatim requests (their usage policy). */
   places?: boolean;
+  place_address?: boolean;
+  stay_radius?: number;
+  stay_min_duration?: number;
 }
 
 /** A single position sample taken from the recorder history. */

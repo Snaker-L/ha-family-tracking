@@ -10,14 +10,23 @@ import {
   MAX_MAP_HEIGHT,
   MIN_MAP_HEIGHT,
   OBSOLETE_KEYS,
+  MAX_STAY_MINUTES,
+  MAX_STAY_RADIUS,
+  MIN_STAY_MINUTES,
+  MIN_STAY_RADIUS,
   resolveMapHeight,
+  resolveStayMinutes,
+  resolveStayRadius,
   fallbackPersonColor,
+  normalizeHex,
+  PERSON_PALETTE,
   sanitizeStyles,
   SATELLITE_STYLES,
   STREET_STYLES,
   zoneVisual,
 } from "./const";
 import type { CustomTileLayer } from "./const";
+import { hexToHsv, hsvToHex, pickFromSquare } from "./color";
 import { localize } from "./localize";
 import { notePreviewLayer } from "./preview-layer";
 import type {
@@ -33,6 +42,10 @@ import type {
 export class FamilyTrackingCardEditor extends LitElement implements LovelaceCardEditor {
   @property({ attribute: false }) public hass?: HomeAssistant;
   @state() private _config?: FamilyTrackingCardConfig;
+  /** Which colour field has its palette open, if any. */
+  @state() private _colorOpen?: string;
+  /** The colour that was set when the picker opened, for Cancel. */
+  private _colorBefore?: string;
 
   /** Short hand for the translations; the language comes from Home Assistant. */
   private _t(key: string, vars?: Record<string, string | number>): string {
@@ -59,7 +72,7 @@ export class FamilyTrackingCardEditor extends LitElement implements LovelaceCard
         .computeLabel=${(entry: { name: string }) => this._t(`editor.${entry.name}`)}
         @value-changed=${this._valueChanged}
       ></ha-form>
-      ${this._renderSwitches()}
+      ${this._renderSwitches()} ${this._renderStays()}
       ${this._renderStyles()} ${this._renderColors()} ${this._renderZones()}
       <p class="note">
         ${this._t("editor.note")}
@@ -86,7 +99,7 @@ export class FamilyTrackingCardEditor extends LitElement implements LovelaceCard
     const config = this._config as FamilyTrackingCardConfig;
 
     const option = (
-      key: "show_stays" | "show_zones" | "geocode" | "places",
+      key: "show_stays" | "show_zones" | "geocode" | "places" | "place_address",
       value: boolean,
       explained: boolean
     ) => html`
@@ -121,7 +134,239 @@ export class FamilyTrackingCardEditor extends LitElement implements LovelaceCard
           ${option("show_zones", this._config?.show_zones ?? DEFAULTS.show_zones, false)}
           ${option("geocode", this._config?.geocode ?? DEFAULTS.geocode, true)}
           ${option("places", this._config?.places ?? DEFAULTS.places, true)}
+          ${
+            // Only worth offering while places are named -- without a name
+            // there is nothing to put the address in brackets after.
+            (this._config?.places ?? DEFAULTS.places)
+              ? option(
+                  "place_address",
+                  this._config?.place_address ?? DEFAULTS.place_address,
+                  false
+                )
+              : nothing
+          }
         </div>
+      </div>
+    `;
+  }
+
+  /**
+   * The colour field: a swatch that opens a picker.
+   *
+   * `<input type="color">` hands the job to the operating system, and on
+   * Windows that is a dialog from another era -- swatch grid, HSL spinners,
+   * "define custom colours". It cannot be themed either, so it arrives in
+   * light grey on a dark dashboard.
+   *
+   * So the whole colour space, drawn here: a square for saturation and
+   * brightness, a slider for the hue, the eight colours the map already uses
+   * as quick picks, and a hex field for anything typed or pasted.
+   */
+  private _renderColorField(
+    key: string,
+    current: string,
+    label: string,
+    onPick: (value: string) => void,
+    /**
+     * What was set before the picker opened -- a colour, or nothing at all
+     * where the card was choosing one itself. Passed in rather than derived,
+     * because "no colour" and "this colour" are different states and only the
+     * caller knows which one it had.
+     */
+    configured: string | undefined,
+    onRestore: (value: string | undefined) => void
+  ): TemplateResult {
+    const open = this._colorOpen === key;
+    const hsv = hexToHsv(current);
+
+    const abbrechen = () => {
+      onRestore(this._colorBefore);
+      this._colorOpen = undefined;
+      this._colorBefore = undefined;
+    };
+
+    /** A pointer anywhere in the square, including a drag that leaves it. */
+    const fromSquare = (ev: PointerEvent) => {
+      const box = (ev.currentTarget as HTMLElement).getBoundingClientRect();
+      onPick(
+        pickFromSquare(hsv.h, (ev.clientX - box.left) / box.width, (ev.clientY - box.top) / box.height)
+      );
+    };
+
+    return html`
+      <span class="color-pick">
+        <button
+          class="swatch"
+          style=${`--swatch:${current}`}
+          aria-label=${label}
+          aria-expanded=${open ? "true" : "false"}
+          @click=${() => {
+            if (open) {
+              abbrechen();
+              return;
+            }
+            // Remembered on the way in: every click in the square writes
+            // straight to the config, so without this there is nothing to
+            // come back to.
+            this._colorBefore = configured;
+            this._colorOpen = key;
+          }}
+        ></button>
+        ${open
+          ? html`
+              <span class="picker-pop" role="dialog" aria-label=${label}>
+                <span
+                  class="sv-area"
+                  style=${`--hue:${hsv.h}`}
+                  @pointerdown=${(ev: PointerEvent) => {
+                    // Capture, so a drag keeps reporting after the pointer has
+                    // left the square -- which is where people let go.
+                    (ev.currentTarget as HTMLElement).setPointerCapture(ev.pointerId);
+                    fromSquare(ev);
+                  }}
+                  @pointermove=${(ev: PointerEvent) => {
+                    if (ev.buttons) fromSquare(ev);
+                  }}
+                >
+                  <span
+                    class="sv-knob"
+                    style=${`left:${hsv.s}%;top:${100 - hsv.v}%;--swatch:${current}`}
+                  ></span>
+                </span>
+
+                <input
+                  class="hue-slider"
+                  type="range"
+                  min="0"
+                  max="360"
+                  .value=${String(Math.round(hsv.h))}
+                  aria-label=${this._t("editor.colour_hue")}
+                  @input=${(ev: Event) =>
+                    onPick(
+                      hsvToHex({ ...hsv, h: Number((ev.target as HTMLInputElement).value) })
+                    )}
+                />
+
+                <span class="quick">
+                  ${PERSON_PALETTE.map(
+                    (choice) => html`
+                      <button
+                        class=${choice === current.toLowerCase() ? "chip-color on" : "chip-color"}
+                        style=${`--swatch:${choice}`}
+                        aria-label=${choice}
+                        @click=${() => onPick(choice)}
+                      ></button>
+                    `
+                  )}
+                </span>
+
+                <span class="pop-foot">
+                  <input
+                    class="palette-hex"
+                    type="text"
+                    maxlength="7"
+                    spellcheck="false"
+                    .value=${current}
+                    aria-label=${this._t("editor.colour_hex")}
+                    @change=${(ev: Event) => {
+                      // Only a colour the card can use. Half-typed input leaves
+                      // the swatch where it was rather than guessing.
+                      const hex = normalizeHex((ev.target as HTMLInputElement).value);
+                      if (hex) onPick(hex);
+                    }}
+                  />
+                  <button class="chip-cancel" @click=${abbrechen}>
+                    ${this._t("editor.cancel")}
+                  </button>
+                  <button
+                    class="chip-done"
+                    @click=${() => {
+                      this._colorOpen = undefined;
+                      this._colorBefore = undefined;
+                    }}
+                  >
+                    ${this._t("card.done")}
+                  </button>
+                </span>
+              </span>
+            `
+          : nothing}
+      </span>
+    `;
+  }
+
+  /**
+   * Stay radius and shortest stay, the two numbers that decide how the day is
+   * cut up.
+   *
+   * Worth exposing because their effect is so visible and so easily mistaken
+   * for a fault: three hours of wandering a city centre collapses into a
+   * single circle, and the track looks as though points went missing. They did
+   * not -- the note behind each icon says so.
+   */
+  private _renderStays(): TemplateResult {
+    const feld = (
+      key: "stay_radius" | "stay_min_duration",
+      info: string,
+      wert: number,
+      min: number,
+      max: number,
+      step: number
+    ) => html`
+      <label class="style-field">
+        <span class="style-label">
+          ${this._t(`editor.${key === "stay_radius" ? "stay_radius" : "stay_minutes"}`)}
+          <button class="opt-info" aria-label=${this._t(info)}>
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path
+                d="M11 9h2V7h-2m1 13c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59
+                   8-8 8m0-18A10 10 0 0 0 2 12a10 10 0 0 0 10 10 10 10 0 0 0 10-10A10
+                   10 0 0 0 12 2m-1 15h2v-6h-2v6Z"
+              />
+            </svg>
+          </button>
+          <span class="opt-note" role="tooltip">
+            ${this._t(
+              key === "stay_radius" ? "editor.stay_radius_explain" : "editor.stay_minutes_explain"
+            )}
+          </span>
+        </span>
+        <input
+          type="number"
+          min=${min}
+          max=${max}
+          step=${step}
+          .value=${String(wert)}
+          @change=${(ev: Event) =>
+            this._emit({
+              ...(this._config as FamilyTrackingCardConfig),
+              [key]:
+                key === "stay_radius"
+                  ? resolveStayRadius((ev.target as HTMLInputElement).value)
+                  : resolveStayMinutes((ev.target as HTMLInputElement).value),
+            })}
+        />
+      </label>
+    `;
+
+    return html`
+      <div class="stays">
+        ${feld(
+          "stay_radius",
+          "editor.stay_radius_info",
+          resolveStayRadius(this._config?.stay_radius),
+          MIN_STAY_RADIUS,
+          MAX_STAY_RADIUS,
+          10
+        )}
+        ${feld(
+          "stay_min_duration",
+          "editor.stay_minutes_info",
+          resolveStayMinutes(this._config?.stay_min_duration),
+          MIN_STAY_MINUTES,
+          MAX_STAY_MINUTES,
+          1
+        )}
       </div>
     `;
   }
@@ -355,13 +600,14 @@ export class FamilyTrackingCardEditor extends LitElement implements LovelaceCard
                 @change=${(ev: Event) =>
                   this._setZoneShown(id, (ev.target as HTMLInputElement).checked)}
               />
-              <input
-                type="color"
-                .value=${color}
-                aria-label=${this._t("editor.colour_for", { name })}
-                @change=${(ev: Event) =>
-                  this._setZoneColor(id, (ev.target as HTMLInputElement).value)}
-              />
+              ${this._renderColorField(
+                `zone:${id}`,
+                color,
+                this._t("editor.colour_for", { name }),
+                (value) => this._setZoneColor(id, value),
+                this._config?.zone_colors?.[id],
+                (value) => this._setZoneColor(id, value)
+              )}
               ${this._renderIconField(id, name, icon)}
               <button
                 class="color-reset"
@@ -506,13 +752,14 @@ export class FamilyTrackingCardEditor extends LitElement implements LovelaceCard
                 @change=${(ev: Event) =>
                   this._setShown(person.id, (ev.target as HTMLInputElement).checked)}
               />
-              <input
-                type="color"
-                .value=${color}
-                aria-label=${this._t("editor.colour_for", { name: person.name })}
-                @change=${(ev: Event) =>
-                  this._setColor(person.id, (ev.target as HTMLInputElement).value)}
-              />
+              ${this._renderColorField(
+                `person:${person.id}`,
+                color,
+                this._t("editor.colour_for", { name: person.name }),
+                (value) => this._setColor(person.id, value),
+                configured,
+                (value) => this._setColor(person.id, value)
+              )}
               <span class="color-name">${person.name}</span>
               <span class="color-state">${configured ? color : this._t("editor.automatic")}</span>
               <button
@@ -588,6 +835,35 @@ export class FamilyTrackingCardEditor extends LitElement implements LovelaceCard
   }
 
   static override styles = css`
+    /* Same grid as the height and style pickers above, so the fields line up
+       across the whole editor. Positioned, so the notes hang from the row. */
+    .stays {
+      position: relative;
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 12px;
+      margin: 16px 4px 0;
+    }
+
+    .stays input {
+      width: 100%;
+      box-sizing: border-box;
+      padding: 10px 12px;
+      border: 1px solid var(--divider-color, #e0e0e0);
+      border-radius: 8px;
+      background: var(--secondary-background-color, transparent);
+      color: var(--primary-text-color);
+      font: inherit;
+      font-size: 14px;
+    }
+
+    /* The label carries the icon, so it has to be a row rather than a block. */
+    .stays .style-label {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+
     .height,
     .styles {
       display: grid;
@@ -734,7 +1010,7 @@ export class FamilyTrackingCardEditor extends LitElement implements LovelaceCard
       opacity: 0.5;
     }
 
-    .zone-row.muted input[type="color"] {
+    .zone-row.muted .swatch {
       filter: grayscale(1);
       opacity: 0.5;
     }
@@ -890,7 +1166,7 @@ export class FamilyTrackingCardEditor extends LitElement implements LovelaceCard
       opacity: 0.5;
     }
 
-    .color-row.muted input[type="color"] {
+    .color-row.muted .swatch {
       filter: grayscale(1);
       opacity: 0.5;
     }
@@ -903,26 +1179,180 @@ export class FamilyTrackingCardEditor extends LitElement implements LovelaceCard
       flex: 0 0 auto;
     }
 
-    /* The native swatch carries its own chrome; strip it back to a dot. */
-    input[type="color"] {
+    /*
+     * The swatch, and the palette that hangs from it.
+     *
+     * Both rows that use this are flex lines, so the wrapper has to be an
+     * inline box that does not stretch -- and positioned, so the palette hangs
+     * from the swatch rather than from the whole row.
+     */
+    .color-pick {
+      position: relative;
+      display: inline-flex;
+      flex: 0 0 auto;
+    }
+
+    .swatch {
       inline-size: 28px;
       block-size: 28px;
       padding: 0;
       border: 1px solid var(--divider-color, #e0e0e0);
       border-radius: 50%;
-      background: none;
+      background: var(--swatch);
       cursor: pointer;
-      flex: 0 0 auto;
     }
 
-    input[type="color"]::-webkit-color-swatch-wrapper {
-      padding: 2px;
+    .swatch:hover,
+    .swatch[aria-expanded="true"] {
+      box-shadow: 0 0 0 2px var(--primary-color, #03a9f4);
     }
 
-    input[type="color"]::-webkit-color-swatch,
-    input[type="color"]::-moz-color-swatch {
-      border: none;
+    .picker-pop {
+      position: absolute;
+      top: calc(100% + 6px);
+      left: 0;
+      z-index: 20;
+      display: block;
+      width: 232px;
+      padding: 10px;
+      border: 1px solid var(--divider-color, #e0e0e0);
+      border-radius: 12px;
+      background: var(--card-background-color, #fff);
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.28);
+    }
+
+    /*
+     * White to the chosen hue across, full brightness to black down: the
+     * standard square, and the two gradients that make it are drawn by the
+     * browser rather than by an image.
+     */
+    .sv-area {
+      position: relative;
+      display: block;
+      height: 130px;
+      border-radius: 8px;
+      cursor: crosshair;
+      touch-action: none;
+      background:
+        linear-gradient(to top, #000, rgba(0, 0, 0, 0)),
+        linear-gradient(to right, #fff, hsl(var(--hue), 100%, 50%));
+    }
+
+    .sv-knob {
+      position: absolute;
+      width: 14px;
+      height: 14px;
+      margin: -7px 0 0 -7px;
+      border: 2px solid #fff;
       border-radius: 50%;
+      background: var(--swatch);
+      box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.4);
+      pointer-events: none;
+    }
+
+    .hue-slider {
+      width: 100%;
+      margin: 10px 0 8px;
+      height: 12px;
+      padding: 0;
+      border-radius: 6px;
+      appearance: none;
+      -webkit-appearance: none;
+      cursor: pointer;
+      background: linear-gradient(
+        to right,
+        #f00 0%, #ff0 17%, #0f0 33%, #0ff 50%, #00f 67%, #f0f 83%, #f00 100%
+      );
+    }
+
+    .hue-slider::-webkit-slider-thumb {
+      appearance: none;
+      -webkit-appearance: none;
+      width: 16px;
+      height: 16px;
+      border: 2px solid #fff;
+      border-radius: 50%;
+      background: transparent;
+      box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.5);
+    }
+
+    .hue-slider::-moz-range-thumb {
+      width: 16px;
+      height: 16px;
+      border: 2px solid #fff;
+      border-radius: 50%;
+      background: transparent;
+      box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.5);
+    }
+
+    /* The colours the map already hands out, one click away. */
+    .quick {
+      display: grid;
+      grid-template-columns: repeat(8, 1fr);
+      gap: 5px;
+    }
+
+    .chip-color {
+      inline-size: 20px;
+      block-size: 20px;
+      padding: 0;
+      border: 1px solid var(--divider-color, #e0e0e0);
+      border-radius: 50%;
+      background: var(--swatch);
+      cursor: pointer;
+    }
+
+    .chip-color:hover {
+      transform: scale(1.15);
+    }
+
+    .chip-color.on {
+      box-shadow: 0 0 0 2px var(--primary-color, #03a9f4);
+    }
+
+    .pop-foot {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-top: 8px;
+    }
+
+    .chip-cancel {
+      flex: 0 0 auto;
+      padding: 6px 10px;
+      border: 1px solid var(--divider-color, #e0e0e0);
+      border-radius: 999px;
+      background: transparent;
+      color: var(--primary-text-color);
+      font: inherit;
+      font-size: 13px;
+      cursor: pointer;
+    }
+
+    .chip-done {
+      flex: 0 0 auto;
+      padding: 6px 12px;
+      border: 0;
+      border-radius: 999px;
+      background: var(--primary-color, #03a9f4);
+      color: #fff;
+      font: inherit;
+      font-size: 13px;
+      cursor: pointer;
+    }
+
+    .palette-hex {
+      flex: 1 1 auto;
+      min-inline-size: 0;
+      box-sizing: border-box;
+      padding: 6px 8px;
+      border: 1px solid var(--divider-color, #e0e0e0);
+      border-radius: 6px;
+      background: var(--secondary-background-color, transparent);
+      color: var(--primary-text-color);
+      font: inherit;
+      font-size: 13px;
+      font-variant-numeric: tabular-nums;
     }
 
     .color-name {

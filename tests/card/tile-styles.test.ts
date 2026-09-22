@@ -2,6 +2,7 @@ import { deepStrictEqual, ok, strictEqual } from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import {
+  COLOR_CHOICES,
   DEFAULTS,
   DEFAULT_SATELLITE_STYLE,
   DEFAULT_STREET_STYLE,
@@ -11,9 +12,17 @@ import {
   EDITOR_SCHEMA,
   FILL_HEIGHT,
   MAX_MAP_HEIGHT,
+  MAX_STAY_MINUTES,
+  MAX_STAY_RADIUS,
   MIN_MAP_HEIGHT,
+  MIN_STAY_MINUTES,
+  MIN_STAY_RADIUS,
+  normalizeHex,
   OBSOLETE_KEYS,
+  PERSON_PALETTE,
   resolveMapHeight,
+  resolveStayMinutes,
+  resolveStayRadius,
   MAX_ZOOM,
   resolveStyle,
   sanitizeStyles,
@@ -360,5 +369,71 @@ describe("Kartenhöhe", () => {
   it("lässt die Grenzen selbst zu", () => {
     strictEqual(resolveMapHeight(MIN_MAP_HEIGHT), MIN_MAP_HEIGHT);
     strictEqual(resolveMapHeight(MAX_MAP_HEIGHT), MAX_MAP_HEIGHT);
+  });
+});
+
+/*
+ * Aufenthaltsradius und Mindestdauer kommen jetzt aus der Konfiguration. Beide
+ * landen über ein Zahlenfeld dort, und YAML kennt ohnehin keine Grenzen -- also
+ * muss jeder Unsinn irgendwo sinnvoll landen statt in einer leeren Karte.
+ */
+describe("Aufenthaltseinstellungen", () => {
+  it("nimmt vernünftige Werte unverändert", () => {
+    strictEqual(resolveStayRadius(40), 40);
+    strictEqual(resolveStayMinutes(10), 10);
+  });
+
+  it("hält sie in den Grenzen", () => {
+    strictEqual(resolveStayRadius(5), MIN_STAY_RADIUS);
+    strictEqual(resolveStayRadius(9000), MAX_STAY_RADIUS);
+    strictEqual(resolveStayMinutes(0), MIN_STAY_MINUTES);
+    strictEqual(resolveStayMinutes(10000), MAX_STAY_MINUTES);
+  });
+
+  it("nimmt bei leerem Feld die Vorgabe", () => {
+    // Nichts eingetragen heißt "wie bisher", nicht "so klein wie möglich" --
+    // Number("") und Number(null) sind beide 0 und lägen sonst am Minimum.
+    for (const leer of [undefined, null, ""]) {
+      strictEqual(resolveStayRadius(leer), DEFAULTS.stay_radius);
+      strictEqual(resolveStayMinutes(leer), DEFAULTS.stay_min_duration);
+    }
+  });
+
+  it("fällt bei Unsinn auf die Vorgabe zurück", () => {
+    for (const unsinn of ["viel", NaN, {}]) {
+      strictEqual(resolveStayRadius(unsinn), DEFAULTS.stay_radius);
+      strictEqual(resolveStayMinutes(unsinn), DEFAULTS.stay_min_duration);
+    }
+  });
+
+  it("rundet, weil Meter und Minuten keine Nachkommastellen brauchen", () => {
+    strictEqual(resolveStayRadius("47.6"), 48);
+    strictEqual(resolveStayMinutes("5.4"), 5);
+  });
+});
+
+describe("Farbwerte", () => {
+  it("nimmt die gängigen Schreibweisen", () => {
+    strictEqual(normalizeHex("#7C4DFF"), "#7c4dff");
+    strictEqual(normalizeHex("7c4dff"), "#7c4dff");
+    strictEqual(normalizeHex("  #7c4dff "), "#7c4dff");
+  });
+
+  it("versteht die Kurzform", () => {
+    strictEqual(normalizeHex("#f0a"), "#ff00aa");
+    strictEqual(normalizeHex("abc"), "#aabbcc");
+  });
+
+  it("rät bei halb Getipptem nicht", () => {
+    // Sonst färbt sich die Karte bei jedem Tastendruck um.
+    for (const halb of ["#7c4d", "#", "", "rot", "#gggggg", undefined, null, 42]) {
+      strictEqual(normalizeHex(halb), undefined);
+    }
+  });
+
+  it("bietet die Personenfarben zuerst an", () => {
+    deepStrictEqual([...COLOR_CHOICES].slice(0, PERSON_PALETTE.length), [...PERSON_PALETTE]);
+    strictEqual(new Set(COLOR_CHOICES).size, COLOR_CHOICES.length);
+    ok(COLOR_CHOICES.every((c) => normalizeHex(c) === c));
   });
 });

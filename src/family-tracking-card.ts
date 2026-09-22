@@ -11,6 +11,8 @@ import {
   editedLayer,
   FILL_HEIGHT,
   resolveMapHeight,
+  resolveStayMinutes,
+  resolveStayRadius,
   resolveStyle,
   sanitizeStyles,
   TODAY,
@@ -22,6 +24,15 @@ import {
 import { fetchPersonHistory, HistoryError, withCurrentState } from "./history";
 import { buildTimeline, staysOf, type Segment, type Stay } from "./stay-points";
 import { cacheKeyFor, reverseGeocode } from "./geocode";
+import {
+  dayRole,
+  firstDayOfWeek,
+  isoDate,
+  monthGrid,
+  monthLabel,
+  nextSelection,
+  weekdayLabels,
+} from "./calendar";
 import { peekPreviewLayer } from "./preview-layer";
 import { TrackMap, type MapZone, type TileStyleChoice } from "./track-map";
 import { formatCoordinates, formatDistance, formatDuration, formatRange, formatSpan } from "./format";
@@ -30,7 +41,6 @@ import {
   formatAbsoluteRange,
   resolveRange,
   toDateField,
-  toTimeField,
   windowStart,
   type AbsoluteRange,
   type RangeFields,
@@ -89,6 +99,8 @@ export class FamilyTrackingCard extends LitElement {
   /** An absolute range picked from the calendar; overrides the rolling window. */
   @state() private _range?: AbsoluteRange;
   @state() private _pickerOpen = false;
+  /** First of the month on display; the picker pages through these. */
+  @state() private _pickerMonth = new Date();
   @state() private _fields: RangeFields = { fromDate: "", toDate: "", fromTime: "", toTime: "" };
   @state() private _mapLayer: MapLayerId = DEFAULTS.map_layer;
 
@@ -378,8 +390,8 @@ export class FamilyTrackingCard extends LitElement {
 
   private get _options() {
     return {
-      radius: DEFAULTS.stay_radius,
-      minDurationMs: DEFAULTS.stay_min_duration * 60_000,
+      radius: resolveStayRadius(this._config?.stay_radius),
+      minDurationMs: resolveStayMinutes(this._config?.stay_min_duration) * 60_000,
     };
   }
 
@@ -540,6 +552,7 @@ export class FamilyTrackingCard extends LitElement {
         const label = await reverseGeocode(stay.lat, stay.lon, {
           language: this.hass?.locale?.language ?? this.hass?.language,
           places: this._config?.places ?? DEFAULTS.places,
+          placeAddress: this._config?.place_address ?? DEFAULTS.place_address,
           callWS: this.hass?.callWS?.bind(this.hass),
         });
         if (token !== this._loadToken) return;
@@ -711,25 +724,47 @@ export class FamilyTrackingCard extends LitElement {
     if (!this._pickerOpen && !this._range) {
       const end = Date.now();
       const start = windowStart(end, this._timeRange);
+      // Dates only. `resolveRange` reads an empty time as the edge of the day,
+      // so two dates already mean "from the first midnight to the last".
       this._fields = {
         fromDate: toDateField(start),
         toDate: toDateField(end),
-        fromTime: toTimeField(start),
-        toTime: toTimeField(end),
+        fromTime: "",
+        toTime: "",
       };
+    }
+    if (!this._pickerOpen) {
+      // Open on the month the selection is in, not on whatever was last paged to.
+      const anchor = this._fields.fromDate ? new Date(this._fields.fromDate) : new Date();
+      this._pickerMonth = new Date(anchor.getFullYear(), anchor.getMonth(), 1);
     }
     this._pickerOpen = !this._pickerOpen;
   }
 
-  private _setField(key: keyof RangeFields, value: string): void {
-    this._fields = { ...this._fields, [key]: value };
+  /**
+   * One click on a day.
+   *
+   * The first picks a day and shows it straight away -- there is nothing to
+   * confirm about "this day". The second turns it into a span. A third starts
+   * over. Nothing is applied by a separate button, because at every point in
+   * that sequence the selection is already a valid answer.
+   */
+  private _pickDay(iso: string): void {
+    const { from, to } = nextSelection(
+      { from: this._fields.fromDate, to: this._fields.toDate },
+      iso
+    );
+    this._fields = { ...this._fields, fromDate: from, toDate: to };
+    const range = resolveRange(this._fields);
+    if (range) this._range = range;
   }
 
-  private _applyRange(): void {
-    const range = resolveRange(this._fields);
-    if (!range) return;
-    this._range = range;
-    this._pickerOpen = false;
+  private _shiftMonth(by: number): void {
+    this._pickerMonth = new Date(
+      this._pickerMonth.getFullYear(),
+      this._pickerMonth.getMonth() + by,
+      1
+    );
   }
 
   private _clearRange(): void {
@@ -807,6 +842,7 @@ export class FamilyTrackingCard extends LitElement {
               </svg>
               ${this._range ? formatAbsoluteRange(this._range, locale) : this._t("card.range")}
             </button>
+            ${this._pickerOpen ? this._renderPicker() : nothing}
           </div>
           <button
             class="chip layer"
@@ -820,8 +856,6 @@ export class FamilyTrackingCard extends LitElement {
             ${this._t(this._mapLayer === "street" ? "card.layer_to_satellite" : "card.layer_to_street")}
           </button>
         </div>
-
-        ${this._pickerOpen ? this._renderPicker() : nothing}
 
         <div class="map-wrap" style=${fill ? "" : `height:${height}px`}>
           <div id="map-host"></div>
@@ -850,46 +884,70 @@ export class FamilyTrackingCard extends LitElement {
    * empty box is worse than a plain one that works.
    */
   private _renderPicker(): TemplateResult {
-    const fields = this._fields;
-    const resolved = resolveRange(fields);
+    const locale = this._locale;
+    const { fromDate, toDate } = this._fields;
+    const resolved = resolveRange(this._fields);
 
-    const field = (
-      label: string,
-      dateKey: "fromDate" | "toDate",
-      timeKey: "fromTime" | "toTime",
-      datePlaceholder?: string
-    ) => html`
-      <label class="picker-field">
-        <span class="picker-label">${label}</span>
-        <input
-          type="date"
-          .value=${fields[dateKey]}
-          placeholder=${datePlaceholder ?? ""}
-          @change=${(ev: Event) => this._setField(dateKey, (ev.target as HTMLInputElement).value)}
-        />
-        <input
-          type="time"
-          .value=${fields[timeKey]}
-          @change=${(ev: Event) => this._setField(timeKey, (ev.target as HTMLInputElement).value)}
-        />
-      </label>
-    `;
+    const jahr = this._pickerMonth.getFullYear();
+    const monat = this._pickerMonth.getMonth();
+    const erster = firstDayOfWeek(locale);
+    const heute = isoDate(new Date());
 
     return html`
       <div class="picker">
-        ${field(this._t("card.from"), "fromDate", "fromTime")}
-        ${field(this._t("card.to"), "toDate", "toTime", this._t("card.same_day"))}
+        <div class="cal-head">
+          <button
+            class="cal-nav"
+            aria-label=${this._t("card.month_previous")}
+            @click=${() => this._shiftMonth(-1)}
+          >
+            ‹
+          </button>
+          <span class="cal-month">${monthLabel(locale, jahr, monat)}</span>
+          <button
+            class="cal-nav"
+            aria-label=${this._t("card.month_next")}
+            @click=${() => this._shiftMonth(1)}
+          >
+            ›
+          </button>
+        </div>
+
+        <div class="cal-grid">
+          ${weekdayLabels(locale, erster).map(
+            (tag) => html`<span class="cal-weekday">${tag}</span>`
+          )}
+          ${monthGrid(jahr, monat, erster).map((tag) => {
+            const rolle = dayRole(tag.iso, fromDate, toDate);
+            const klassen = [
+              "cal-day",
+              tag.inMonth ? "" : "outside",
+              rolle === "none" ? "" : rolle,
+              tag.iso === heute ? "today" : "",
+            ]
+              .filter(Boolean)
+              .join(" ");
+            return html`
+              <button
+                class=${klassen}
+                aria-pressed=${rolle === "none" ? "false" : "true"}
+                @click=${() => this._pickDay(tag.iso)}
+              >
+                ${tag.date.getDate()}
+              </button>
+            `;
+          })}
+        </div>
+
         <div class="picker-foot">
           <span class="picker-hint">
-            ${resolved
-              ? formatAbsoluteRange(resolved, this._locale)
-              : this._t("card.pick_start")}
+            ${resolved ? formatAbsoluteRange(resolved, locale) : this._t("card.pick_start")}
           </span>
           <button class="chip" ?disabled=${!this._range} @click=${this._clearRange}>
             ${this._t("card.reset")}
           </button>
-          <button class="chip apply" ?disabled=${!resolved} @click=${this._applyRange}>
-            ${this._t("card.apply")}
+          <button class="chip apply" @click=${this._togglePicker}>
+            ${this._t("card.done")}
           </button>
         </div>
       </div>
@@ -1107,6 +1165,7 @@ export class FamilyTrackingCard extends LitElement {
     }
 
     .ranges {
+      position: relative;
       display: flex;
       gap: 6px;
       flex-wrap: wrap;
@@ -1170,42 +1229,126 @@ export class FamilyTrackingCard extends LitElement {
       flex: 0 0 auto;
     }
 
+    /*
+     * A panel hanging from the calendar chip, not a section of the card.
+     *
+     * Inline, the month grid pushed the map halfway off the screen for as long
+     * as it was open -- and it is open only while somebody picks two days.
+     * Floating keeps the card the size it was. The z-index has to clear
+     * Leaflet's *controls*, not just its panes: the panes stop at 700 but the
+     * zoom buttons sit at 1000, and the map comes later in the document, so at
+     * equal height they win. They were drawn over the first column and the
+     * button for the previous month.
+     */
     .picker {
-      display: flex;
-      flex-wrap: wrap;
-      align-items: flex-end;
-      gap: 12px;
-      margin: 0 12px 8px;
-      padding: 12px;
+      position: absolute;
+      top: calc(100% + 6px);
+      left: 0;
+      z-index: 1200;
+      width: 300px;
+      max-width: calc(100vw - 32px);
+      box-sizing: border-box;
+      padding: 10px;
       border: 1px solid var(--divider-color, #e0e0e0);
       border-radius: 10px;
-      background: var(--secondary-background-color, transparent);
+      background: var(--card-background-color, #fff);
+      box-shadow: 0 6px 20px rgba(0, 0, 0, 0.22);
     }
 
-    .picker-field {
-      display: grid;
-      grid-template-columns: auto auto;
-      gap: 6px;
+    .cal-head {
+      display: flex;
       align-items: center;
+      justify-content: space-between;
+      margin-bottom: 8px;
     }
 
-    .picker-label {
-      grid-column: 1 / -1;
-      font-size: 12px;
+    .cal-month {
+      font-size: 14px;
+      font-weight: 500;
+      color: var(--primary-text-color);
+    }
+
+    .cal-nav {
+      width: 32px;
+      height: 32px;
+      padding: 0;
+      border: 0;
+      border-radius: 50%;
+      background: transparent;
+      color: var(--primary-text-color);
+      font-size: 20px;
+      line-height: 1;
+      cursor: pointer;
+    }
+
+    .cal-nav:hover {
+      background: var(--divider-color, rgba(0, 0, 0, 0.08));
+    }
+
+    /* Seven equal columns: the grid must not shift as the numbers change width. */
+    .cal-grid {
+      display: grid;
+      grid-template-columns: repeat(7, 1fr);
+      gap: 2px;
+    }
+
+    .cal-weekday {
+      padding: 2px 0 6px;
+      text-align: center;
+      font-size: 11px;
       color: var(--secondary-text-color);
     }
 
-    .picker input {
-      padding: 6px 8px;
-      border: 1px solid var(--divider-color, #e0e0e0);
-      border-radius: 6px;
-      background: var(--card-background-color, transparent);
+    .cal-day {
+      height: 34px;
+      padding: 0;
+      border: 0;
+      border-radius: 8px;
+      background: transparent;
       color: var(--primary-text-color);
       font: inherit;
       font-size: 13px;
-      /* The browser draws its own calendar icon; on a dark theme it is black
-         on black without this. */
-      color-scheme: light dark;
+      cursor: pointer;
+    }
+
+    .cal-day:hover {
+      background: var(--divider-color, rgba(0, 0, 0, 0.08));
+    }
+
+    /* The neighbouring months are shown so the grid keeps its shape, not
+       because anybody is looking for them. */
+    .cal-day.outside {
+      color: var(--disabled-text-color, #bdbdbd);
+    }
+
+    .cal-day.today {
+      box-shadow: inset 0 0 0 1px var(--ftc-track-color);
+    }
+
+    .cal-day.between {
+      background: color-mix(in srgb, var(--ftc-track-color) 22%, transparent);
+      border-radius: 0;
+    }
+
+    .cal-day.start,
+    .cal-day.end,
+    .cal-day.single {
+      background: var(--ftc-track-color);
+      color: #fff;
+    }
+
+    /* The ends keep their rounding on the outer side only, so a span reads as
+       one bar rather than as separate days. */
+    .cal-day.start {
+      border-radius: 8px 0 0 8px;
+    }
+
+    .cal-day.end {
+      border-radius: 0 8px 8px 0;
+    }
+
+    .cal-day.single {
+      border-radius: 8px;
     }
 
     .picker-foot {
@@ -1213,6 +1356,7 @@ export class FamilyTrackingCard extends LitElement {
       align-items: center;
       gap: 8px;
       margin-left: auto;
+          margin-top: 10px;
     }
 
     .picker-hint {
