@@ -18,8 +18,13 @@ const MIN_REQUEST_GAP_MS = 1100;
  * of the street around it: this cache is consulted before anything is asked,
  * so a stay resolved last week would go on reading "Grinzinger Straße 112"
  * for a month no matter what the integration now answers.
+ *
+ * Raised to 3 for a second helping of the same problem. The integration takes
+ * care not to store an address it only fell back to while the lookup service
+ * was busy -- and this cache stored it anyway, which is how a stay at the
+ * Bauhaus went on reading "Jägerstraße 82" after the fix was already in.
  */
-const CACHE_KEY = "family-tracking-card:geocode:2";
+const CACHE_KEY = "family-tracking-card:geocode:3";
 const CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 /** ~11 m at the equator: fine enough for a stay, coarse enough to reuse. */
 const CACHE_PRECISION = 4;
@@ -35,6 +40,13 @@ export interface GeocodeOptions {
    * service at all.
    */
   places?: boolean;
+  /**
+   * Whether to keep the address as well, in brackets after the name. Part of
+   * the cache key for the same reason `places` is: the same coordinate has
+   * more than one right answer, and a stored one from the other setting would
+   * make the switch look broken.
+   */
+  placeAddress?: boolean;
   /**
    * Home Assistant's websocket call. When the Family Tracking integration is
    * installed it answers `family_tracking/geocode`, and then the lookup belongs
@@ -54,22 +66,32 @@ export function resetServerGeocoding(): void {
   serverGeocoding = undefined;
 }
 
+/** What the integration answered: the label, and whether it is the final one. */
+interface ServerAnswer {
+  label?: string;
+  settled: boolean;
+}
+
 async function viaServer(
   lat: number,
   lon: number,
   options: GeocodeOptions
-): Promise<string | undefined | null> {
+): Promise<ServerAnswer | null> {
   if (!options.callWS || serverGeocoding === false) return null;
   try {
-    const result = await options.callWS<{ label?: string } | null>({
+    const result = await options.callWS<{ label?: string; settled?: boolean } | null>({
       type: "family_tracking/geocode",
       latitude: lat,
       longitude: lon,
       language: options.language,
       places: options.places !== false,
+      address: options.placeAddress === true,
     });
     serverGeocoding = true;
-    return result?.label || undefined;
+    // `settled: false` means the integration wanted to name the place and
+    // could not ask -- the label is an address standing in for a name that is
+    // not available this minute.
+    return { label: result?.label || undefined, settled: result?.settled !== false };
   } catch (err) {
     // Not the same thing twice. `unknown_command` means the integration is not
     // installed, and then asking again for every stay only costs a round trip
@@ -107,8 +129,33 @@ export const cacheKeyFor = (lat: number, lon: number): string =>
  * on showing the place it had already stored, which reads like the switch does
  * nothing.
  */
-const entryKeyFor = (lat: number, lon: number, places: boolean): string =>
-  places ? cacheKeyFor(lat, lon) : `${cacheKeyFor(lat, lon)}|addr`;
+const entryKeyFor = (lat: number, lon: number, places: boolean, withAddress: boolean): string => {
+  const base = cacheKeyFor(lat, lon);
+  if (!places) return `${base}|addr`;
+  return withAddress ? `${base}|both` : base;
+};
+
+/**
+ * Where the house number goes before the street name rather than after it.
+ *
+ * "350 5th Avenue" in New York, "Pariser Platz 1" in Berlin -- and Nominatim
+ * hands both over as separate fields, so the order is ours to get right.
+ * Countries not listed take the number after the street, which covers most of
+ * Europe and South America. Kept in step with `HOUSE_NUMBER_FIRST` in
+ * `custom_components/family_tracking/address.py`.
+ */
+const HOUSE_NUMBER_FIRST = new Set([
+  "us", "ca", "gb", "ie", "au", "nz", "fr", "in", "sg", "my", "hk", "ph", "th", "za",
+]);
+
+/** Street and house number in the order that country writes them. */
+export function streetHead(street: string, houseNumber?: string, countryCode?: string): string {
+  if (!street) return "";
+  if (!houseNumber) return street;
+  return HOUSE_NUMBER_FIRST.has((countryCode ?? "").toLowerCase())
+    ? `${houseNumber} ${street}`
+    : `${street} ${houseNumber}`;
+}
 
 /**
  * Condenses a Nominatim address object into one readable line.
@@ -121,8 +168,8 @@ export function shortLabel(result: any): string | undefined {
     address.village ?? address.town ?? address.city ?? address.municipality ?? address.county;
 
   if (street) {
-    const houseNumber = address.house_number ? ` ${address.house_number}` : "";
-    return place ? `${street}${houseNumber}, ${place}` : `${street}${houseNumber}`;
+    const head = streetHead(street, address.house_number, address.country_code);
+    return place ? `${head}, ${place}` : head;
   }
   const named = result?.name || address.amenity || address.shop || address.building;
   if (named) return place ? `${named}, ${place}` : named;
@@ -190,17 +237,27 @@ export async function reverseGeocode(
   lon: number,
   options: GeocodeOptions = {}
 ): Promise<string | undefined> {
-  const key = entryKeyFor(lat, lon, options.places !== false);
+  const key = entryKeyFor(lat, lon, options.places !== false, options.placeAddress === true);
   const hit = cache().get(key);
   if (hit) return hit.label;
 
   const server = await viaServer(lat, lon, options);
   if (server !== null) {
     // The server has its own cache; keeping a copy here saves the round trip
-    // for the stays already on screen.
-    if (server) cache().set(key, { label: server, at: Date.now() });
+    // for the stays already on screen. An unsettled answer is kept only for
+    // this page: the integration deliberately did not store it, and writing it
+    // to browser storage for a month would undo that -- a shopping centre
+    // would go on reading as the street outside it long after the lookup
+    // service was willing again.
+    if (server.label) {
+      cache().set(key, {
+        label: server.label,
+        at: Date.now(),
+        direct: !server.settled,
+      });
+    }
     persist();
-    return server;
+    return server.label;
   }
 
   return schedule(async () => {
@@ -237,6 +294,17 @@ export async function reverseGeocode(
 /** Test/debug helper: forgets every cached address. */
 export function clearGeocodeCache(): void {
   memoryCache = undefined;
+  // A write may already be queued, and it would put the cleared content
+  // straight back. Dropping the handle also lets the next lookup queue one of
+  // its own -- without this, the first write of a session was the last.
+  if (persistHandle !== undefined) {
+    try {
+      window.clearTimeout(persistHandle);
+    } catch {
+      // A browser that cannot cancel it will still write nothing worth keeping.
+    }
+    persistHandle = undefined;
+  }
   try {
     window.localStorage.removeItem(CACHE_KEY);
   } catch {

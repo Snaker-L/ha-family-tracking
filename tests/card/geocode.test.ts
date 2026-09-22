@@ -7,6 +7,7 @@ import {
   resetServerGeocoding,
   reverseGeocode,
   shortLabel,
+  streetHead,
 } from "../../src/geocode.ts";
 
 describe("cacheKeyFor", () => {
@@ -19,9 +20,31 @@ describe("cacheKeyFor", () => {
 describe("shortLabel", () => {
   it("prefers street and house number", () => {
     const label = shortLabel({
-      address: { road: "Hauptstraße", house_number: "12", city: "Wien" },
+      address: { road: "Hauptstraße", house_number: "12", city: "Wien", country_code: "at" },
     });
     assert.equal(label, "Hauptstraße 12, Wien");
+  });
+
+  /*
+   * Nominatim hands the street and the number over separately, so the order is
+   * ours to get right. Writing it the German way everywhere produced
+   * "5th Avenue 350, New York", which nobody there writes.
+   */
+  it("puts the house number first where that country does", () => {
+    assert.equal(
+      shortLabel({ address: { road: "5th Avenue", house_number: "350", city: "New York", country_code: "us" } }),
+      "350 5th Avenue, New York"
+    );
+    assert.equal(
+      shortLabel({ address: { road: "Downing Street", house_number: "10", city: "London", country_code: "gb" } }),
+      "10 Downing Street, London"
+    );
+  });
+
+  it("falls back to the number after the street when the country is unknown", () => {
+    assert.equal(streetHead("Straße", "5", undefined), "Straße 5");
+    assert.equal(streetHead("Main Street", undefined, "us"), "Main Street");
+    assert.equal(streetHead("", "5", "us"), "");
   });
 
   it("omits the house number when Nominatim has none", () => {
@@ -70,6 +93,7 @@ describe("asking the integration rather than Nominatim", () => {
         fn();
         return 0;
       },
+      clearTimeout: () => undefined,
     };
     try {
       await run();
@@ -136,6 +160,74 @@ describe("asking the integration rather than Nominatim", () => {
       }
       const written = [...store.values()].join("");
       assert.equal(written.includes("Grinzinger"), false);
+    });
+  });
+});
+
+/*
+ * The integration refuses to store an address it only fell back to because the
+ * lookup service was busy. This cache used to store it regardless, for thirty
+ * days, which is how a stay at a named place went on reading as the street
+ * outside it long after the service was willing again.
+ */
+describe("vorläufige Antworten der Integration", () => {
+  const store = new Map<string, string>();
+
+  const withBrowser = async (run: () => Promise<void>) => {
+    const before = (globalThis as any).window;
+    (globalThis as any).window = {
+      localStorage: {
+        getItem: (k: string) => store.get(k) ?? null,
+        setItem: (k: string, v: string) => void store.set(k, v),
+        removeItem: (k: string) => void store.delete(k),
+      },
+      setTimeout: (fn: () => void) => {
+        fn();
+        return 0;
+      },
+      clearTimeout: () => undefined,
+    };
+    try {
+      await run();
+    } finally {
+      (globalThis as any).window = before;
+    }
+  };
+
+  it("schreibt eine endgültige Antwort in den Speicher", async () => {
+    await withBrowser(async () => {
+      clearGeocodeCache();
+      resetServerGeocoding();
+      store.clear();
+      const callWS = async () => ({ label: "Bauhaus, Wien", settled: true });
+      const label = await reverseGeocode(48.24, 16.3717, { callWS: callWS as any });
+      assert.equal(label, "Bauhaus, Wien");
+      assert.equal([...store.values()].join("").includes("Bauhaus"), true);
+    });
+  });
+
+  it("schreibt eine vorläufige Antwort nicht in den Speicher", async () => {
+    await withBrowser(async () => {
+      clearGeocodeCache();
+      resetServerGeocoding();
+      store.clear();
+      // Der Ortsdienst war beschäftigt, also kam die Adresse als Platzhalter.
+      const callWS = async () => ({ label: "Jägerstraße 82, Wien", settled: false });
+      const label = await reverseGeocode(48.24, 16.3717, { callWS: callWS as any });
+      assert.equal(label, "Jägerstraße 82, Wien");
+      assert.equal([...store.values()].join("").includes("Jägerstraße"), false);
+    });
+  });
+
+  it("behandelt eine Antwort ohne Kennzeichen als endgültig", async () => {
+    // Ältere Integrationen kennen das Feld nicht; deren Antworten sind fertig.
+    await withBrowser(async () => {
+      clearGeocodeCache();
+      resetServerGeocoding();
+      store.clear();
+      const callWS = async () => ({ label: "Praterstraße 35, Wien" });
+      await reverseGeocode(48.2152, 16.3852, { callWS: callWS as any });
+      assert.equal([...store.values()].join("").includes("Praterstraße"), true);
     });
   });
 });
