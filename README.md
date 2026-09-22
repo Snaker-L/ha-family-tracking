@@ -1,19 +1,20 @@
 # Family Tracking
 
-[![HACS Custom](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)](https://hacs.xyz/docs/faq/custom_repositories)
-[![Release](https://img.shields.io/github/v/release/Snaker-L/ha-family-tracking)](https://github.com/Snaker-L/ha-family-tracking/releases)
-[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![HACS Custom](https://img.shields.io/badge/HACS-Custom-41BDF5.svg?logo=home-assistant&logoColor=white)](https://hacs.xyz/docs/faq/custom_repositories)
+[![Version](https://img.shields.io/github/v/release/Snaker-L/ha-family-tracking?label=version&color=orange)](https://github.com/Snaker-L/ha-family-tracking/releases)
+[![Last commit](https://img.shields.io/github/last-commit/Snaker-L/ha-family-tracking?label=last%20commit&color=teal)](https://github.com/Snaker-L/ha-family-tracking/commits/main)
+[![License](https://img.shields.io/github/license/Snaker-L/ha-family-tracking?label=license&color=green)](LICENSE)
 
 A Home Assistant integration that works out where each person actually is — and
 a map card, shipped with it, that shows the day as a readable list of stays
 instead of raw coordinates.
 
 <p>
-  <img src="https://raw.githubusercontent.com/Snaker-L/ha-family-tracking/main/docs/screenshot-card.png?v=0.7.1" alt="The card: person chips, the range menu, a map with a track, and the stay list below" width="355">
-  <img src="https://raw.githubusercontent.com/Snaker-L/ha-family-tracking/main/docs/screenshot-satellite.jpg?v=0.7.1" alt="The same card on satellite tiles, with the view unchanged" width="355">
+  <img src="https://raw.githubusercontent.com/Snaker-L/ha-family-tracking/main/docs/screenshot-card.png?v=0.8.0" alt="The card: person chips, the range menu, a map with a track, and the stay list below" width="355">
+  <img src="https://raw.githubusercontent.com/Snaker-L/ha-family-tracking/main/docs/screenshot-satellite.jpg?v=0.8.0" alt="The same card on satellite tiles, with the view unchanged" width="355">
 </p>
 <p>
-  <img src="https://raw.githubusercontent.com/Snaker-L/ha-family-tracking/main/docs/screenshot-editor.png?v=0.7.1" alt="The card editor: the two lookup switches, map height, tile styles, a colour per person and an icon per zone" width="355">
+  <img src="https://raw.githubusercontent.com/Snaker-L/ha-family-tracking/main/docs/screenshot-editor.png?v=0.8.0" alt="The card editor: the two lookup switches, map height, tile styles, a colour per person and an icon per zone" width="355">
 </p>
 
 **One install, nothing to register.** The integration serves the card and keeps
@@ -44,9 +45,9 @@ minutes: `just_arrived` and `just_left`.
 pulls into the driveway.
 
 **The map card**: everyone at once in their own colour, a range menu from the
-current day down to a single hour plus a calendar for an exact window, street
-and satellite tiles, zones as circles with their own icon, and the stay list
-underneath. It opens on today.
+current day down to a single hour plus a month calendar for anything else,
+street and satellite tiles, zones as circles with their own icon, and the stay
+list underneath. It opens on today.
 
 ## Install
 
@@ -118,8 +119,11 @@ Set at install and changeable afterwards under *Configure*:
 | `show_zones` | boolean | `false` | Draw zones as circles with their icon |
 | `zone_icons` / `zone_colors` | map | – | Icon and colour per zone |
 | `hidden_zones` | list | `[]` | Zones the card leaves out |
-| `geocode` | boolean | `true` | Resolve addresses for stays |
+| `geocode` | boolean | `true` | Turn the coordinates of a stay into a readable address |
 | `places` | boolean | `true` | Show the name of the place a stay is in, where it has one, instead of its address |
+| `place_address` | boolean | `false` | Keep the street address too, in brackets after the name |
+| `stay_radius` | number | `120` | How far somebody may wander and still count as staying put, in metres (20–500) |
+| `stay_min_duration` | number | `5` | How long a pause has to last to earn a line of its own, in minutes (1–720) |
 
 `hidden_persons` and `hidden_zones` store what is *excluded*, so anything added
 later shows up instead of going missing.
@@ -136,12 +140,29 @@ Tile styles — `street_style`: `osm`, `esri_gray` (follows your theme),
   Raise `purge_keep_days` if you need more.
 - **A stay inside a zone is exact** — arrival and departure come from the state
   changes. Only the parts outside any zone are clustered.
+- **A stay is one circle, not a tangle of points.** Three hours of wandering a
+  city centre would otherwise draw a knot that says nothing, so the samples
+  inside a stay become its marker. None are discarded, and `stay_radius` and
+  `stay_min_duration` decide where the line gives way to a circle. If the track
+  looks coarser than you expect, that is usually the recorder rather than the
+  card: Home Assistant stores a position when the phone reports one, which for
+  the companion app is every couple of minutes by default.
+- **The calendar takes two clicks.** One day picks that day; a second makes it
+  a span; a third starts over. Whole days, no clocks — a map is asked about
+  days, not about office hours. The week starts on the day that locale starts
+  it on.
 - **The card opens on today, not on the last 24 hours.** Asked where everyone
   has been, a rolling window answers with half of yesterday; midnight is the
   boundary people mean. *Today* heads the range menu, so it is one pick away
   again.
 - **The map re-frames only when you change who is on it.** A new time range,
   incoming positions and switching to satellite leave your view alone.
+- **Addresses are written the way that country writes them.** Nominatim hands
+  the street and the house number over as separate fields, so the order is the
+  integration's to get right: `350 5th Avenue` in New York, `Pariser Platz 1`
+  in Berlin. Countries not on the list take the number after the street, which
+  covers most of Europe and South America; adding one is a two-letter code in
+  [`address.py`](custom_components/family_tracking/address.py).
 - **A place is named, not addressed.** Reverse geocoding answers "what is
   nearest", which in the Donauzentrum is a phone shop and in the Q19 a coffee
   bar — and the street outside is no better, because nobody arranges to meet at
@@ -159,8 +180,18 @@ Tile styles — `street_style`: `osm`, `esri_gray` (follows your theme),
   asks for caching; Overpass is donated capacity. The integration keeps to
   both, asks them at the same time rather than one after the other, and caches
   the result for the whole household. Where Overpass cannot be reached the
-  address is still shown — but it is not cached, so the centre is named as soon
+  address is still shown — but it is not cached, so the place is named as soon
   as the service answers again.
+- **Three Overpass instances, in rotation.** A busy one is asked twice and then
+  left for the next; an explicit rate limit ends its turn at once, because
+  asking again is the one thing it just said not to do. Whichever answered last
+  is tried first next time, and one that a network cannot route to at all is
+  left out for half an hour rather than costing a timeout on every lookup. Only
+  instances holding the whole planet are listed: several public mirrors carry a
+  single country and answer "nothing found" for everywhere else, which reads
+  exactly like "nothing here". Every answer carries a count of the areas
+  enclosing the fix, and a zero there means the instance has no data for this
+  part of the world.
 - **Both speak your language.** English and German are translated; anything else
   falls back to English. A language is one table in
   [`src/localize.ts`](src/localize.ts) and one file under
