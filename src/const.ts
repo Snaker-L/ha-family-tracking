@@ -1,4 +1,4 @@
-export const CARD_VERSION = "0.8.0";
+export const CARD_VERSION = "0.9.0";
 
 export const CARD_TAG = "family-tracking-card";
 export const EDITOR_TAG = "family-tracking-card-editor";
@@ -345,11 +345,14 @@ export const MAX_MAP_HEIGHT = 2000;
 /**
  * What still counts as standing still, and for how long.
  *
- * Below 20 m every GPS wobble becomes its own stay; above 500 m a stay would
+ * Below 10 m every GPS wobble becomes its own stay; above 500 m a stay would
  * swallow a whole neighbourhood. One minute is the shortest wait worth a line
  * in the list, and beyond twelve hours a day has no stays left to show.
+ *
+ * The lower bound sits below the default on purpose: a setting that cannot be
+ * turned down from where it starts is not a setting.
  */
-export const MIN_STAY_RADIUS = 20;
+export const MIN_STAY_RADIUS = 10;
 export const MAX_STAY_RADIUS = 500;
 export const MIN_STAY_MINUTES = 1;
 export const MAX_STAY_MINUTES = 720;
@@ -405,8 +408,11 @@ export const DEFAULTS = {
   time_ranges: [1, 4, 6, 8, 12, 16, 18, 20, 22, 24],
   map_layer: "street" as MapLayerId,
   map_height: 480 as number | typeof FILL_HEIGHT,
-  stay_radius: 120,
-  stay_min_duration: 5,
+  // Tight on purpose. A wide radius turns a walk through a shopping street
+  // into one circle and the track loses the shape of the day; three minutes
+  // is long enough that waiting at a light does not earn a line of its own.
+  stay_radius: 20,
+  stay_min_duration: 3,
   show_stays: true,
   // Off by default: an existing card must not suddenly grow circles on its map.
   show_zones: false,

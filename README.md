@@ -10,11 +10,11 @@ a map card, shipped with it, that shows the day as a readable list of stays
 instead of raw coordinates.
 
 <p>
-  <img src="https://raw.githubusercontent.com/Snaker-L/ha-family-tracking/main/docs/screenshot-card.png?v=0.8.0" alt="The card: person chips, the range menu, a map with a track, and the stay list below" width="355">
-  <img src="https://raw.githubusercontent.com/Snaker-L/ha-family-tracking/main/docs/screenshot-satellite.jpg?v=0.8.0" alt="The same card on satellite tiles, with the view unchanged" width="355">
+  <img src="https://raw.githubusercontent.com/Snaker-L/ha-family-tracking/main/docs/screenshot-card.png?v=0.9.0" alt="The card: person chips, the range menu, a map with a track, and the stay list below" width="355">
+  <img src="https://raw.githubusercontent.com/Snaker-L/ha-family-tracking/main/docs/screenshot-satellite.jpg?v=0.9.0" alt="The same card on satellite tiles, with the view unchanged" width="355">
 </p>
 <p>
-  <img src="https://raw.githubusercontent.com/Snaker-L/ha-family-tracking/main/docs/screenshot-editor.png?v=0.8.0" alt="The card editor: the two lookup switches, map height, tile styles, a colour per person and an icon per zone" width="355">
+  <img src="https://raw.githubusercontent.com/Snaker-L/ha-family-tracking/main/docs/screenshot-editor.png?v=0.9.0" alt="The card editor: the two lookup switches, map height, tile styles, a colour per person and an icon per zone" width="355">
 </p>
 
 **One install, nothing to register.** The integration serves the card and keeps
@@ -122,8 +122,8 @@ Set at install and changeable afterwards under *Configure*:
 | `geocode` | boolean | `true` | Turn the coordinates of a stay into a readable address |
 | `places` | boolean | `true` | Show the name of the place a stay is in, where it has one, instead of its address |
 | `place_address` | boolean | `false` | Keep the street address too, in brackets after the name |
-| `stay_radius` | number | `120` | How far somebody may wander and still count as staying put, in metres (20–500) |
-| `stay_min_duration` | number | `5` | How long a pause has to last to earn a line of its own, in minutes (1–720) |
+| `stay_radius` | number | `20` | How far somebody may wander and still count as staying put, in metres (10–500) |
+| `stay_min_duration` | number | `3` | How long a pause has to last to earn a line of its own, in minutes (1–720) |
 
 `hidden_persons` and `hidden_zones` store what is *excluded*, so anything added
 later shows up instead of going missing.

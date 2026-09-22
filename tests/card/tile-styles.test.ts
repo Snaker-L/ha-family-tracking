@@ -437,3 +437,18 @@ describe("Farbwerte", () => {
     ok(COLOR_CHOICES.every((c) => normalizeHex(c) === c));
   });
 });
+
+describe("Vorgaben für Aufenthalte", () => {
+  it("steht auf 20 m und 3 min", () => {
+    strictEqual(DEFAULTS.stay_radius, 20);
+    strictEqual(DEFAULTS.stay_min_duration, 3);
+  });
+
+  it("lässt sich von der Vorgabe aus noch verkleinern", () => {
+    // Eine Untergrenze, die auf der Vorgabe liegt, wäre keine Einstellung.
+    ok(MIN_STAY_RADIUS < DEFAULTS.stay_radius);
+    ok(MIN_STAY_MINUTES < DEFAULTS.stay_min_duration);
+    strictEqual(resolveStayRadius(10), 10);
+    strictEqual(resolveStayMinutes(1), 1);
+  });
+});
