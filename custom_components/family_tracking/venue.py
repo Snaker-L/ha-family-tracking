@@ -77,9 +77,20 @@ NEARBY_RADIUS = 50
 
 
 def build_query(latitude: float, longitude: float, radius: int = NEARBY_RADIUS) -> str:
-    """The Overpass query for both questions at once: inside what, and near what."""
+    """
+    The Overpass query: inside what, near what -- and does this server even
+    know the region.
+
+    The last part matters as soon as more than one instance is asked. Several
+    public mirrors carry a single country and answer "200, nothing found" for
+    everywhere else, which is indistinguishable from "nothing encloses this
+    fix" and would be cached as fact. `is_in` returns at least the country and
+    its administrative levels for any point on land, so a count of zero says
+    the server has no data here rather than nothing being here.
+    """
     where = f"{latitude:.6f},{longitude:.6f}"
 
+    coverage = "area.a;out count;"
     inside = "".join(f'area.a[name]["{key}"];out tags;' for key in VENUE_KEYS)
 
     grouped: dict[str, list[str]] = {}
@@ -90,7 +101,7 @@ def build_query(latitude: float, longitude: float, radius: int = NEARBY_RADIUS) 
         for key, values in grouped.items()
     )
 
-    return f"[out:json][timeout:25];is_in({where})->.a;{inside}{nearby}"
+    return f"[out:json][timeout:25];is_in({where})->.a;{coverage}{inside}{nearby}"
 
 
 def _rank(element: dict[str, Any]) -> tuple[int, int]:
@@ -129,3 +140,23 @@ def pick_name(payload: dict[str, Any]) -> str:
             best, name = rank, candidate
 
     return name
+
+
+def covers(payload: dict[str, Any]) -> bool:
+    """
+    Whether the instance that answered holds data for this part of the world.
+
+    Verified against a regional mirror: overpass.osm.ch reports six enclosing
+    areas for Zürich and zero for both Vienna and Tokyo, while the global
+    instance reports eleven and seven. Without the count element -- an older
+    instance, a truncated answer -- the answer is taken at face value rather
+    than thrown away.
+    """
+    for element in payload.get("elements") or []:
+        if element.get("type") != "count":
+            continue
+        try:
+            return int((element.get("tags") or {}).get("areas", 0)) > 0
+        except (TypeError, ValueError):
+            return True
+    return True

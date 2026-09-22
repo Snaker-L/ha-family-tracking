@@ -1,7 +1,14 @@
 """Working out what to call the place a fix is in, rather than what is nearest."""
 
-from family_tracking.address import merge_venue, parse
-from family_tracking.venue import CONTAINERS, NEARBY, VENUE_KEYS, build_query, pick_name
+from family_tracking.address import merge_venue, parse, street_line
+from family_tracking.venue import (
+    CONTAINERS,
+    NEARBY,
+    VENUE_KEYS,
+    build_query,
+    covers,
+    pick_name,
+)
 
 
 def area(name, **tags):
@@ -119,3 +126,108 @@ class TestMergeVenue:
 
     def test_a_place_without_a_known_city_needs_no_comma(self):
         assert merge_venue(parse({"address": {"road": "Landstraße"}}), "Stadion Center").label == "Stadion Center"
+
+class TestMitAdresse:
+    """Die Adresse zusätzlich, in Klammern hinter dem Namen."""
+
+    def test_the_address_follows_the_name_in_brackets(self):
+        a = parse({"address": {"road": "Olympiaplatz", "house_number": "2", "city": "Wien"}})
+        assert merge_venue(a, "Stadion Center", with_address=True).label == (
+            "Stadion Center (Olympiaplatz 2, Wien)")
+
+    def test_the_city_is_not_named_twice(self):
+        a = parse({"address": {"road": "Olympiaplatz", "house_number": "2", "city": "Wien"}})
+        assert merge_venue(a, "Stadion Center", with_address=True).label.count("Wien") == 1
+
+    def test_the_brackets_never_hold_the_shop_next_door(self):
+        # Measured inside the Stadion Center: Nominatim answers with a shop and
+        # no street at all. Putting that in brackets would name the very thing
+        # the place was meant to replace.
+        a = parse({"name": "TEDi", "address": {"shop": "TEDi", "city": "Wien"}})
+        assert a.label == "TEDi, Wien"
+        assert merge_venue(a, "Stadion Center", with_address=True).label == "Stadion Center, Wien"
+
+    def test_without_a_house_number_the_street_still_counts(self):
+        a = parse({"address": {"road": "Grinzinger Straße", "city": "Wien"}})
+        assert merge_venue(a, "Q19", with_address=True).label == "Q19 (Grinzinger Straße, Wien)"
+
+    def test_without_the_option_the_address_is_dropped(self):
+        a = parse({"address": {"road": "Olympiaplatz", "house_number": "2", "city": "Wien"}})
+        assert merge_venue(a, "Stadion Center").label == "Stadion Center, Wien"
+
+    def test_nothing_encloses_the_fix_and_the_address_stands_alone(self):
+        a = parse({"address": {"road": "Hauptstraße", "house_number": "12", "city": "Wien"}})
+        assert merge_venue(a, "", with_address=True).label == "Hauptstraße 12, Wien"
+
+    def test_a_place_without_an_address_needs_no_brackets(self):
+        assert merge_venue(None, "Millennium City", with_address=True).label == "Millennium City"
+
+    def test_the_parts_still_reach_the_sensor(self):
+        a = parse({"address": {"road": "Olympiaplatz", "house_number": "2",
+                               "postcode": "1020", "city": "Wien"}})
+        m = merge_venue(a, "Stadion Center", with_address=True)
+        assert (m.street, m.house_number, m.postcode, m.name) == (
+            "Olympiaplatz", "2", "1020", "Stadion Center")
+
+
+class TestAbdeckung:
+    """Hat die antwortende Instanz überhaupt Daten für diese Weltgegend?"""
+
+    def test_the_query_asks_how_many_areas_enclose_the_point(self):
+        assert "area.a;out count;" in build_query(48.2537, 16.3676)
+
+    def test_a_server_that_knows_the_region_reports_areas(self):
+        # Gemessen: overpass-api.de meldet 11 Flächen für Wien, 7 für Zürich.
+        assert covers({"elements": [{"type": "count", "tags": {"areas": "11"}}]}) is True
+
+    def test_a_regional_mirror_reports_none(self):
+        # Gemessen: overpass.osm.ch meldet 0 für Wien und Tokio, 6 für Zürich.
+        # Ohne diese Unterscheidung hieße das "hier ist kein Ort" -- und würde
+        # als Tatsache gespeichert.
+        assert covers({"elements": [{"type": "count", "tags": {"areas": "0"}}]}) is False
+
+    def test_an_answer_without_a_count_is_taken_at_face_value(self):
+        assert covers({"elements": []}) is True
+        assert covers({}) is True
+
+    def test_an_unreadable_count_is_no_reason_to_throw_the_answer_away(self):
+        assert covers({"elements": [{"type": "count", "tags": {"areas": "viele"}}]}) is True
+
+    def test_the_count_element_is_not_mistaken_for_a_place(self):
+        payload = {"elements": [{"type": "count", "tags": {"areas": "11"}},
+                                {"type": "area", "id": 1, "tags": {"name": "Q19", "shop": "mall"}}]}
+        assert pick_name(payload) == "Q19"
+
+
+class TestSchreibweiseNachLand:
+    """Nominatim liefert Straße und Hausnummer getrennt -- die Reihenfolge nicht."""
+
+    def test_the_house_number_goes_first_where_that_country_does(self):
+        for land, road, hnr, stadt, erwartet in [
+            ("us", "5th Avenue", "350", "New York", "350 5th Avenue, New York"),
+            ("ca", "Bremner Boulevard", "290", "Toronto", "290 Bremner Boulevard, Toronto"),
+            ("gb", "Downing Street", "10", "London", "10 Downing Street, London"),
+            ("fr", "Rue de Rivoli", "12", "Paris", "12 Rue de Rivoli, Paris"),
+        ]:
+            a = parse({"address": {"road": road, "house_number": hnr,
+                                   "city": stadt, "country_code": land}})
+            assert a.label == erwartet
+
+    def test_and_after_the_street_everywhere_else(self):
+        for land in ("de", "at", "nl", "it", "pl", ""):
+            a = parse({"address": {"road": "Hauptstraße", "house_number": "12",
+                                   "city": "Ort", "country_code": land}})
+            assert a.label == "Hauptstraße 12, Ort"
+
+    def test_the_brackets_follow_the_same_order(self):
+        a = parse({"address": {"road": "5th Avenue", "house_number": "350",
+                               "city": "New York", "country_code": "us"}})
+        assert street_line(a) == "350 5th Avenue, New York"
+        assert merge_venue(a, "Empire State Building", with_address=True).label == (
+            "Empire State Building (350 5th Avenue, New York)")
+
+    def test_the_country_code_survives_the_cache(self):
+        a = parse({"address": {"road": "5th Avenue", "house_number": "350",
+                               "city": "New York", "country_code": "us"}})
+        from family_tracking.address import Address
+        assert Address(**a.as_dict()).country_code == "us"

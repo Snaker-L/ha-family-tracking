@@ -36,6 +36,7 @@ def _any_geocoder(hass: HomeAssistant) -> Geocoder | None:
         vol.Required("longitude"): vol.Coerce(float),
         vol.Optional("language"): vol.Any(str, None),
         vol.Optional("places", default=True): bool,
+        vol.Optional("address", default=False): bool,
     }
 )
 @websocket_api.async_response
@@ -48,6 +49,13 @@ async def _handle_geocode(
         return
 
     address = await geocoder.async_resolve(
-        msg["latitude"], msg["longitude"], msg.get("language"), places=msg["places"]
+        msg["latitude"],
+        msg["longitude"],
+        msg.get("language"),
+        places=msg["places"],
+        with_address=msg["address"],
     )
-    connection.send_result(msg["id"], address.as_dict() if address else None)
+    connection.send_result(
+        msg["id"],
+        {**address.as_dict(), "settled": address.settled} if address else None,
+    )

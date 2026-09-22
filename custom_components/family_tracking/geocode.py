@@ -19,6 +19,7 @@ import logging
 import time
 from typing import Any
 
+import aiohttp
 from aiohttp import ClientError, ClientSession
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.storage import Store
@@ -29,15 +30,20 @@ from .const import (
     CACHE_TTL_DAYS,
     MIN_REQUEST_INTERVAL,
     NOMINATIM_URL,
-    OVERPASS_URL,
+    OVERPASS_URLS,
     STORAGE_KEY,
     STORAGE_VERSION,
+    VENUE_ATTEMPTS,
     VENUE_BACKOFF,
+    VENUE_BUSY_STATUS,
+    VENUE_CONNECT_TIMEOUT,
+    VENUE_DEAD_FOR,
+    VENUE_LIMIT_STATUS,
     VENUE_MIN_REQUEST_INTERVAL,
-    VENUE_RETRY_STATUS,
+    VENUE_PAUSE,
     VENUE_TIMEOUT,
 )
-from .venue import build_query, pick_name
+from .venue import build_query, covers, pick_name
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -63,6 +69,10 @@ class Geocoder:
         self._last_venue = 0.0
         #: Monotonic time before which Overpass is not to be asked again.
         self._venue_quiet_until = 0.0
+        #: Which instance answered last; the next lookup starts there.
+        self._venue_first = 0
+        #: Instances that could not be reached, and until when to skip them.
+        self._venue_dead: dict[str, float] = {}
         self._save_handle: asyncio.TimerHandle | None = None
         self._dirty = False
 
@@ -98,6 +108,7 @@ class Geocoder:
         longitude: float,
         language: str | None = None,
         places: bool = True,
+        with_address: bool = False,
     ) -> Address | None:
         """
         What to call a position, from the cache where possible.
@@ -110,13 +121,13 @@ class Geocoder:
         key = cache_key(latitude, longitude)
         entry = self._cache.get(key)
         if entry is not None and (not places or "venue" in entry):
-            return self._compose(entry, places)
+            return self._compose(entry, places, with_address)
 
         async with self._lock:
             # Someone else may have filled it in while this call queued.
             entry = self._cache.get(key)
             if entry is not None and (not places or "venue" in entry):
-                return self._compose(entry, places)
+                return self._compose(entry, places, with_address)
 
             wanted = []
             if entry is None:
@@ -151,12 +162,21 @@ class Geocoder:
             self._dirty = True
             self._schedule_save()
 
-        return merge_venue(address, venue or "")
+        endgueltig = merge_venue(address, venue or "", with_address)
+        if endgueltig is not None and places and venue is None:
+            # Overpass could not be asked. The address goes back as a usable
+            # line, but marked so that nothing downstream stores it -- the
+            # browser keeps its own copy for a month, which would outlive the
+            # busy moment by a long way.
+            endgueltig.settled = False
+        return endgueltig
 
     @staticmethod
-    def _compose(entry: dict[str, Any], places: bool) -> Address:
+    def _compose(entry: dict[str, Any], places: bool, with_address: bool = False) -> Address:
         address = Address(**entry["address"])
-        return merge_venue(address, entry.get("venue") or "") if places else address
+        if not places:
+            return address
+        return merge_venue(address, entry.get("venue") or "", with_address)
 
     async def _nominatim(
         self, latitude: float, longitude: float, language: str | None
@@ -217,51 +237,73 @@ class Geocoder:
 
         query = build_query(latitude, longitude)
 
-        # One retry. The commonest failure is a busy moment -- 429 or 504 --
-        # and the instance is usually fine seconds later. Beyond that it is not
-        # worth pressing: the address is already a usable line, and the next fix
-        # at this spot asks again.
-        for attempt in (1, 2):
-            wait = self._last_venue + VENUE_MIN_REQUEST_INTERVAL - time.monotonic()
-            if wait > 0:
-                await asyncio.sleep(wait)
-            self._last_venue = time.monotonic()
+        # Each instance gets the full round of attempts before the next one is
+        # tried. A rate limit ends that instance's turn immediately -- asking
+        # again is the one thing it just told us not to do.
+        reihenfolge = [
+            OVERPASS_URLS[(self._venue_first + i) % len(OVERPASS_URLS)]
+            for i in range(len(OVERPASS_URLS))
+        ]
 
-            try:
-                async with self._session.post(
-                    OVERPASS_URL,
-                    data={"data": query},
-                    headers={"User-Agent": "home-assistant-family-tracking"},
-                    timeout=VENUE_TIMEOUT,
-                ) as response:
-                    if response.status in VENUE_RETRY_STATUS:
-                        if attempt == 1:
+        for stelle, url in enumerate(reihenfolge):
+            if time.monotonic() < self._venue_dead.get(url, 0.0):
+                continue
+            gedrosselt = False
+            for versuch in range(1, VENUE_ATTEMPTS + 1):
+                wait = self._last_venue + VENUE_MIN_REQUEST_INTERVAL - time.monotonic()
+                if wait > 0:
+                    await asyncio.sleep(wait)
+                self._last_venue = time.monotonic()
+
+                try:
+                    async with self._session.post(
+                        url,
+                        data={"data": query},
+                        headers={"User-Agent": "home-assistant-family-tracking"},
+                        timeout=aiohttp.ClientTimeout(
+                            total=VENUE_TIMEOUT, sock_connect=VENUE_CONNECT_TIMEOUT
+                        ),
+                    ) as response:
+                        if response.status in VENUE_LIMIT_STATUS:
+                            _LOGGER.debug("%s is rate limiting (%s)", url, response.status)
+                            gedrosselt = True
+                            break
+                        if response.status in VENUE_BUSY_STATUS:
                             _LOGGER.debug(
-                                "Overpass is busy (%s), asking once more", response.status
+                                "%s is busy (%s), attempt %d of %d",
+                                url, response.status, versuch, VENUE_ATTEMPTS,
                             )
                             continue
-                        _LOGGER.debug(
-                            "Overpass is busy (%s), leaving it alone for %d s",
-                            response.status,
-                            VENUE_BACKOFF,
-                        )
-                        self._venue_quiet_until = time.monotonic() + VENUE_BACKOFF
-                        return None
-                    if response.status != 200:
-                        _LOGGER.debug("Overpass answered %s", response.status)
-                        return None
-                    # Overpass reports its own errors as XML with a 200, so the
-                    # content type is not something to insist on here -- but
-                    # then the body will not parse, which lands in the same
-                    # place as any other failure.
-                    payload = await response.json(content_type=None)
-            except (ClientError, asyncio.TimeoutError, ValueError) as err:
-                _LOGGER.debug("Could not ask what encloses the fix: %s", err)
+                        if response.status != 200:
+                            _LOGGER.debug("%s answered %s", url, response.status)
+                            break
+                        # Overpass reports its own errors as XML with a 200, so
+                        # the content type is not something to insist on here
+                        # -- but then the body will not parse, which lands in
+                        # the same place as any other failure.
+                        payload = await response.json(content_type=None)
+                except (ClientError, asyncio.TimeoutError, ValueError) as err:
+                    _LOGGER.debug("Could not reach %s: %s", url, err)
+                    self._venue_dead[url] = time.monotonic() + VENUE_DEAD_FOR
+                    break
+
+                if not covers(payload):
+                    # It answered, but it has no data for this part of the
+                    # world. Believing it would cache "nothing here" as fact.
+                    _LOGGER.debug("%s holds no data around this fix", url)
+                    break
+
+                # Worth starting here next time.
+                self._venue_first = (self._venue_first + stelle) % len(OVERPASS_URLS)
+                return pick_name(payload)
+
+            if gedrosselt and stelle == len(reihenfolge) - 1:
+                # Every instance turned us away. That is about us, not them.
                 self._venue_quiet_until = time.monotonic() + VENUE_BACKOFF
                 return None
 
-            return pick_name(payload)
-
+        # Nobody answered usefully. A short pause, not the long one.
+        self._venue_quiet_until = time.monotonic() + VENUE_PAUSE
         return None
 
     def _schedule_save(self) -> None:

@@ -73,18 +73,27 @@ STORAGE_VERSION: Final = 1
 #: they are a convenience, and keeping them would hide the very change that
 #: raised the number -- a shopping centre visited last week would go on
 #: reading as the street outside it.
-CACHE_SCHEMA: Final = 3
+CACHE_SCHEMA: Final = 4
 
 # --- enclosing places -------------------------------------------------------
 
-#: One instance, deliberately.
+#: Asked in order, and only instances that hold the whole planet.
 #:
-#: Mirrors looked like the answer to the 429s and 504s the main instance hands
-#: out when busy, until one of them turned out to carry a single country: it
-#: answers "200, nothing found" for everywhere else, which is indistinguishable
-#: from "nothing encloses this fix" and would be cached as fact. A regional
-#: mirror is worse than no mirror.
-OVERPASS_URL: Final = "https://overpass-api.de/api/interpreter"
+#: A mirror carrying one country is worse than no mirror: it answers "200,
+#: nothing found" for everywhere else, which reads exactly like "nothing
+#: encloses this fix" and would be cached as fact. `venue.covers()` catches
+#: that now, but a regional instance still has no business in this list -- it
+#: would fail every lookup outside its country and delay the real answer.
+#:
+#: The order is a preference, not a ranking: whichever answered last is tried
+#: first next time, so an instance that a particular network cannot reach stops
+#: costing a timeout on every lookup. Several of these publish AAAA records
+#: only, which is fine where there is IPv6 and a dead end where there is not.
+OVERPASS_URLS: Final = (
+    "https://overpass-api.de/api/interpreter",
+    "https://overpass.kumi.systems/api/interpreter",
+    "https://overpass.private.coffee/api/interpreter",
+)
 
 #: Overpass is donated capacity, and containment queries are cheap only for the
 #: person asking. One every two seconds, on top of a cache that holds for
@@ -96,18 +105,48 @@ VENUE_MIN_REQUEST_INTERVAL: Final = 2.0
 #: and nothing in the card is blocked on it.
 VENUE_TIMEOUT: Final = 30
 
-#: Answers that mean "busy, not wrong". Worth one more ask; anything else is a
-#: real no.
-VENUE_RETRY_STATUS: Final = frozenset({429, 502, 503, 504})
-
-#: How long to leave Overpass alone after it says it is busy.
+#: How long to wait for the connection itself.
 #:
-#: Learned the hard way: a burst of queries against the public instance earns a
-#: 429, and carrying on regardless earns a block that outlasts the session. A
-#: dashboard opening with a dozen unresolved stays is exactly such a burst, so
-#: the first refusal stops the rest of them. Nothing is lost -- the address is
-#: shown meanwhile, and the names fill in on the next look.
+#: Short on purpose, and separate from the one above. Several instances publish
+#: AAAA records only, and on a network without IPv6 they do not refuse the
+#: connection -- they swallow it. Thirty seconds of that per instance, per
+#: lookup, is how a fallback chain becomes slower than having none.
+VENUE_CONNECT_TIMEOUT: Final = 8
+
+#: How long an instance that could not be reached is left out of the rotation.
+#:
+#: A network either routes to an instance or it does not, and that rarely
+#: changes within an hour. Trying a dead one on every lookup costs the connect
+#: timeout each time and delays the answer that would have worked.
+VENUE_DEAD_FOR: Final = 1800
+
+#: "Our servers are struggling." Worth another ask a couple of seconds later:
+#: measured against the public instance, the same query answers 504 and then
+#: 200 within seconds -- it load-balances across backends and some of them time
+#: out. Four of ten succeed first time, three of four within three tries.
+VENUE_BUSY_STATUS: Final = frozenset({502, 503, 504})
+
+#: "You are asking too much." A different message entirely, and asking again is
+#: precisely the wrong answer to it. One of these stops the round and buys a
+#: long silence.
+VENUE_LIMIT_STATUS: Final = frozenset({429})
+
+#: How often to ask one instance through a busy signal before moving to the
+#: next. Two, not three: with three instances in the rotation that is already
+#: six chances, and a single attempt succeeds about four times in ten.
+VENUE_ATTEMPTS: Final = 2
+
+#: How long to leave Overpass alone after it says *we* are the problem.
+#:
+#: Learned the hard way: a burst of queries earns a 429, and carrying on
+#: regardless earns a block that outlasts the session. A dashboard opening with
+#: a dozen unresolved stays is exactly such a burst.
 VENUE_BACKOFF: Final = 600
+
+#: The shorter pause after the service itself was struggling. Not our fault and
+#: usually over quickly, so a dashboard full of stays should not be written off
+#: for ten minutes because one of them was unlucky.
+VENUE_PAUSE: Final = 60
 
 # --- frontend ---------------------------------------------------------------
 
