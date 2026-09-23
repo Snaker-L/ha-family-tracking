@@ -1,6 +1,9 @@
 {
   "domain": "family_tracking",
   "name": "Family Tracking",
+  "after_dependencies": [
+    "recorder"
+  ],
   "codeowners": [
     "@Snaker-L"
   ],
@@ -11,9 +14,6 @@
     "lovelace",
     "person",
     "websocket_api"
-  ],
-  "after_dependencies": [
-    "recorder"
   ],
   "documentation": "https://github.com/Snaker-L/ha-family-tracking",
   "integration_type": "service",
