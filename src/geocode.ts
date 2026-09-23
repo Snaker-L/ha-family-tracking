@@ -58,18 +58,73 @@ export interface GeocodeOptions {
   callWS?: <T>(message: Record<string, unknown>) => Promise<T>;
 }
 
+/** The instance-wide settings of the integration that the card follows. */
+export interface ServerSettings {
+  /** `false` when lookups are switched off for the whole instance. */
+  geocode?: boolean;
+  /** Fixes reporting a worse accuracy than this, in metres, are left out. */
+  maxAccuracy?: number;
+}
+
+/**
+ * Asks the integration for its settings.
+ *
+ * Every field is `undefined` when there is no integration to ask or it could
+ * not answer: the card then decides on its own, as it always did.
+ */
+export async function fetchServerSettings(
+  callWS: GeocodeOptions["callWS"]
+): Promise<ServerSettings> {
+  if (!callWS) return {};
+  try {
+    const result = await callWS<{ geocode?: unknown; max_accuracy?: unknown } | null>({
+      type: "family_tracking/settings",
+    });
+    const maxAccuracy = Number(result?.max_accuracy);
+    return {
+      geocode: typeof result?.geocode === "boolean" ? result.geocode : undefined,
+      maxAccuracy: Number.isFinite(maxAccuracy) && maxAccuracy > 0 ? maxAccuracy : undefined,
+    };
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * Whether the integration lets this instance resolve addresses at all.
+ *
+ * Only an explicit `false` means the editor's lookup switches have no effect.
+ */
+export async function serverGeocodeEnabled(
+  callWS: GeocodeOptions["callWS"]
+): Promise<boolean | undefined> {
+  return (await fetchServerSettings(callWS)).geocode;
+}
+
 /** Remembers a missing integration, so the card asks once and not per stay. */
 let serverGeocoding: boolean | undefined;
+
+/**
+ * Remembers that the instance switched lookups off.
+ *
+ * Kept apart from `serverGeocoding`, because the two lead opposite ways: a
+ * missing integration means fall back to Nominatim, a switched-off one means
+ * do not.
+ */
+let serverDisabled = false;
 
 /** Test helper: forget whether the integration answered. */
 export function resetServerGeocoding(): void {
   serverGeocoding = undefined;
+  serverDisabled = false;
 }
 
 /** What the integration answered: the label, and whether it is the final one. */
 interface ServerAnswer {
   label?: string;
   settled: boolean;
+  /** The instance resolves no addresses at all; do not go around it. */
+  disabled?: boolean;
 }
 
 async function viaServer(
@@ -78,8 +133,13 @@ async function viaServer(
   options: GeocodeOptions
 ): Promise<ServerAnswer | null> {
   if (!options.callWS || serverGeocoding === false) return null;
+  if (serverDisabled) return { settled: true, disabled: true };
   try {
-    const result = await options.callWS<{ label?: string; settled?: boolean } | null>({
+    const result = await options.callWS<{
+      label?: string;
+      settled?: boolean;
+      disabled?: boolean;
+    } | null>({
       type: "family_tracking/geocode",
       latitude: lat,
       longitude: lon,
@@ -88,6 +148,10 @@ async function viaServer(
       address: options.placeAddress === true,
     });
     serverGeocoding = true;
+    if (result?.disabled) {
+      serverDisabled = true;
+      return { settled: true, disabled: true };
+    }
     // `settled: false` means the integration wanted to name the place and
     // could not ask -- the label is an address standing in for a name that is
     // not available this minute.
@@ -242,6 +306,10 @@ export async function reverseGeocode(
   if (hit) return hit.label;
 
   const server = await viaServer(lat, lon, options);
+  // Switched off instance-wide. Returning here rather than falling through is
+  // the point of the setting: the queue below would otherwise ask Nominatim
+  // from the browser and undo the decision.
+  if (server?.disabled) return undefined;
   if (server !== null) {
     // The server has its own cache; keeping a copy here saves the round trip
     // for the stays already on screen. An unsettled answer is kept only for

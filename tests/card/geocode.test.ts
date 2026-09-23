@@ -6,6 +6,8 @@ import {
   clearGeocodeCache,
   resetServerGeocoding,
   reverseGeocode,
+  fetchServerSettings,
+  serverGeocodeEnabled,
   shortLabel,
   streetHead,
 } from "../../src/geocode.ts";
@@ -140,6 +142,41 @@ describe("asking the integration rather than Nominatim", () => {
     });
   });
 
+  /*
+   * The setting exists to stop Nominatim traffic, so falling back to asking
+   * Nominatim from the browser would defeat it. That is why the integration
+   * answers with a result rather than an error: an error means "cannot", and
+   * the card is right to go around that one.
+   */
+  it("asks nobody once the instance switched lookups off", async () => {
+    await withBrowser(async () => {
+      clearGeocodeCache();
+      resetServerGeocoding();
+      let asked = 0;
+      let fetched = 0;
+      const callWS = async () => {
+        asked += 1;
+        return { disabled: true };
+      };
+      const fetchBefore = globalThis.fetch;
+      globalThis.fetch = (async () => {
+        fetched += 1;
+        return { ok: true, json: async () => ({}) };
+      }) as any;
+      try {
+        const label = await reverseGeocode(48.2536, 16.3675, { callWS: callWS as any });
+        assert.equal(label, undefined);
+        assert.equal(fetched, 0);
+        // A second stay must not even cost the round trip any more.
+        await reverseGeocode(48.2095, 16.4229, { callWS: callWS as any });
+        assert.equal(asked, 1);
+        assert.equal(fetched, 0);
+      } finally {
+        globalThis.fetch = fetchBefore;
+      }
+    });
+  });
+
   it("does not store a label it had to look up itself", async () => {
     await withBrowser(async () => {
       clearGeocodeCache();
@@ -229,5 +266,53 @@ describe("vorläufige Antworten der Integration", () => {
       await reverseGeocode(48.2152, 16.3852, { callWS: callWS as any });
       assert.equal([...store.values()].join("").includes("Praterstraße"), true);
     });
+  });
+});
+
+describe("serverGeocodeEnabled", () => {
+  it("meldet den ausgeschalteten Hauptschalter der Integration", async () => {
+    const asked: unknown[] = [];
+    const callWS = async (msg: unknown) => {
+      asked.push(msg);
+      return { geocode: false };
+    };
+    assert.equal(await serverGeocodeEnabled(callWS as any), false);
+    assert.deepEqual(asked, [{ type: "family_tracking/settings" }]);
+  });
+
+  it("meldet den eingeschalteten Hauptschalter", async () => {
+    assert.equal(await serverGeocodeEnabled((async () => ({ geocode: true })) as any), true);
+  });
+
+  it("weiß nichts, wenn keine Integration antwortet", async () => {
+    // Ohne Integration entscheidet die Karte selbst -- nichts wird ausgegraut.
+    const failing = async () => {
+      throw new Error("unknown_command");
+    };
+    assert.equal(await serverGeocodeEnabled(failing as any), undefined);
+    assert.equal(await serverGeocodeEnabled(undefined), undefined);
+    assert.equal(await serverGeocodeEnabled((async () => null) as any), undefined);
+  });
+});
+
+describe("fetchServerSettings", () => {
+  it("liest den Grenzwert für die Genauigkeit mit", async () => {
+    const callWS = async () => ({ geocode: true, max_accuracy: 100 });
+    assert.deepEqual(await fetchServerSettings(callWS as any), {
+      geocode: true,
+      maxAccuracy: 100,
+    });
+  });
+
+  it("ignoriert einen unbrauchbaren Grenzwert", async () => {
+    const callWS = async () => ({ geocode: true, max_accuracy: 0 });
+    assert.equal((await fetchServerSettings(callWS as any)).maxAccuracy, undefined);
+  });
+
+  it("liefert nichts ohne Integration", async () => {
+    const failing = async () => {
+      throw new Error("unknown_command");
+    };
+    assert.deepEqual(await fetchServerSettings(failing as any), {});
   });
 });

@@ -27,6 +27,7 @@ import {
 } from "./const";
 import type { CustomTileLayer } from "./const";
 import { hexToHsv, hsvToHex, pickFromSquare } from "./color";
+import { serverGeocodeEnabled } from "./geocode";
 import { localize } from "./localize";
 import { notePreviewLayer } from "./preview-layer";
 import type {
@@ -46,6 +47,12 @@ export class FamilyTrackingCardEditor extends LitElement implements LovelaceCard
   @state() private _colorOpen?: string;
   /** The colour that was set when the picker opened, for Cancel. */
   private _colorBefore?: string;
+  /**
+   * The integration's master switch for address lookups. `false` greys out
+   * the card's own lookup switches; unknown leaves them as they are.
+   */
+  @state() private _serverGeocode?: boolean;
+  private _askedServer = false;
 
   /** Short hand for the translations; the language comes from Home Assistant. */
   private _t(key: string, vars?: Record<string, string | number>): string {
@@ -54,6 +61,20 @@ export class FamilyTrackingCardEditor extends LitElement implements LovelaceCard
 
   public setConfig(config: FamilyTrackingCardConfig): void {
     this._config = config;
+  }
+
+  /**
+   * Asks the integration once per opening whether lookups are allowed.
+   *
+   * Once is enough: switching lookups in the integration reloads it, and the
+   * editor is opened afresh far more often than that happens.
+   */
+  protected override updated(): void {
+    if (this._askedServer || !this.hass) return;
+    this._askedServer = true;
+    void serverGeocodeEnabled(this.hass.callWS?.bind(this.hass)).then((enabled) => {
+      this._serverGeocode = enabled;
+    });
   }
 
   /** Only the title is left in the form; the switches are drawn below it. */
@@ -97,13 +118,17 @@ export class FamilyTrackingCardEditor extends LitElement implements LovelaceCard
    */
   private _renderSwitches(): TemplateResult {
     const config = this._config as FamilyTrackingCardConfig;
+    // The card's settings stay as saved; they only stop mattering while the
+    // integration forbids lookups, and apply again once it allows them.
+    const locked = this._serverGeocode === false;
 
     const option = (
       key: "show_stays" | "show_zones" | "geocode" | "places" | "place_address",
       value: boolean,
-      explained: boolean
+      explained: boolean,
+      lockable = false
     ) => html`
-      <div class="opt">
+      <div class="opt ${lockable && locked ? "locked" : ""}">
         <span class="opt-label">${this._t(`editor.${key}`)}</span>
         ${explained
           ? html`
@@ -121,6 +146,7 @@ export class FamilyTrackingCardEditor extends LitElement implements LovelaceCard
           : nothing}
         <ha-switch
           .checked=${value}
+          ?disabled=${lockable && locked}
           @change=${(ev: Event) =>
             this._emit({ ...config, [key]: (ev.target as HTMLInputElement).checked })}
         ></ha-switch>
@@ -129,11 +155,21 @@ export class FamilyTrackingCardEditor extends LitElement implements LovelaceCard
 
     return html`
       <div class="lookups">
+        ${locked
+          ? html`
+              <p class="locked-note">
+                ${this._t("editor.geocode_locked")}
+                <a href="/config/integrations/integration/family_tracking"
+                  >${this._t("editor.geocode_locked_link")}</a
+                >
+              </p>
+            `
+          : nothing}
         <div class="opt-grid">
           ${option("show_stays", this._config?.show_stays ?? DEFAULTS.show_stays, false)}
           ${option("show_zones", this._config?.show_zones ?? DEFAULTS.show_zones, false)}
-          ${option("geocode", this._config?.geocode ?? DEFAULTS.geocode, true)}
-          ${option("places", this._config?.places ?? DEFAULTS.places, true)}
+          ${option("geocode", this._config?.geocode ?? DEFAULTS.geocode, true, true)}
+          ${option("places", this._config?.places ?? DEFAULTS.places, true, true)}
           ${
             // Only worth offering while places are named -- without a name
             // there is nothing to put the address in brackets after.
@@ -141,7 +177,8 @@ export class FamilyTrackingCardEditor extends LitElement implements LovelaceCard
               ? option(
                   "place_address",
                   this._config?.place_address ?? DEFAULTS.place_address,
-                  false
+                  false,
+                  true
                 )
               : nothing
           }
@@ -1084,6 +1121,25 @@ export class FamilyTrackingCardEditor extends LitElement implements LovelaceCard
     .opt-label {
       color: var(--primary-text-color);
       font-size: 14px;
+    }
+
+    .opt.locked .opt-label {
+      color: var(--disabled-text-color, #9e9e9e);
+    }
+
+    .locked-note {
+      margin: 0 0 8px;
+      padding: 8px 12px;
+      border-left: 3px solid var(--warning-color, #ff9800);
+      border-radius: 4px;
+      background: var(--secondary-background-color);
+      color: var(--primary-text-color);
+      font-size: 13px;
+      line-height: 1.5;
+    }
+
+    .locked-note a {
+      color: var(--primary-color);
     }
 
     .opt ha-switch {

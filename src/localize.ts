@@ -111,6 +111,11 @@ const en: Record<string, string> = {
     "street: shopping centres, department stores, airports, stations, hospitals, " +
     "universities, schools, stadiums, museums, zoos and parks. The larger one wins, so a " +
     "café inside a shopping centre reads as the centre.",
+  "editor.geocode_locked":
+    "Address lookups are switched off in the Family Tracking integration, so these " +
+    "settings have no effect. They stay saved and apply again once lookups are " +
+    "switched back on there.",
+  "editor.geocode_locked_link": "Open the integration",
   "editor.geocode_info": "What does this do?",
   "editor.geocode_explain":
     "Positions outside a zone are turned into a readable address by Nominatim, the search " +
@@ -161,8 +166,8 @@ const en: Record<string, string> = {
   "editor.note":
     "The button above the map on the right switches between the two styles chosen " +
     "here. The preset ranges can only be changed in YAML, e. g. time_ranges: " +
-    "[1, 4, 6, 8, 12, 16]; the calendar next to them is always available. Note " +
-    "that the recorder keeps only 10 days by default (purge_keep_days).",
+    "[1, 4, 6, 8, 12, 16]; the calendar next to them is always available. How far " +
+    "back it reaches is set in the Family Tracking integration.",
 
   // -- tile styles --------------------------------------------------------
   "style.osm": "OpenStreetMap",
@@ -234,6 +239,11 @@ const de: Record<string, string> = {
     "Einkaufszentren, Kaufhäuser, Flughäfen, Bahnhöfe, Krankenhäuser, Universitäten, " +
     "Schulen, Stadien, Museen, Zoos und Parks. Das Größere gewinnt — ein Café im " +
     "Einkaufszentrum erscheint als das Zentrum.",
+  "editor.geocode_locked":
+    "Die Adressauflösung ist in der Integration Family Tracking ausgeschaltet, deshalb " +
+    "wirken diese Einstellungen nicht. Sie bleiben gespeichert und gelten wieder, " +
+    "sobald sie dort eingeschaltet wird.",
+  "editor.geocode_locked_link": "Zur Integration",
   "editor.geocode_info": "Was macht das?",
   "editor.geocode_explain":
     "Positionen außerhalb einer Zone werden von Nominatim, dem Suchdienst von " +
@@ -285,7 +295,7 @@ const de: Record<string, string> = {
     "Der Knopf rechts über der Karte schaltet zwischen den beiden hier gewählten " +
     "Stilen um. Die Vorgabe-Zeiträume lassen sich nur in YAML ändern, z. B. " +
     "time_ranges: [1, 4, 6, 8, 12, 16]; der Kalender daneben ist immer da. " +
-    "Beachte, dass der Recorder standardmäßig nur 10 Tage vorhält (purge_keep_days).",
+    "Wie weit er zurückreicht, wird in der Integration Family Tracking eingestellt.",
 
   "style.esri_gray": "Esri Grau (folgt dem Theme)",
   "style.esri_streets": "Esri Straßen",
