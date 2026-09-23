@@ -10,6 +10,11 @@ from everyone.
 Doing it here means one cache for the whole instance, kept on disk across
 restarts, and one queue that honours the rate limit no matter how many browsers
 are open.
+
+The cache lives in the integration's own database, next to the positions, and
+is kept as long as they are: a month from half a year ago should come back with
+its street names rather than a minute of queued lookups. It used to be a Home
+Assistant `Store`, which is read once on the first start and then removed.
 """
 
 from __future__ import annotations
@@ -17,7 +22,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import aiohttp
 from aiohttp import ClientError, ClientSession
@@ -27,7 +32,6 @@ from homeassistant.helpers.storage import Store
 from .address import Address, cache_key, merge_venue, parse
 from .const import (
     CACHE_SCHEMA,
-    CACHE_TTL_DAYS,
     MIN_REQUEST_INTERVAL,
     NOMINATIM_URL,
     OVERPASS_URLS,
@@ -45,23 +49,34 @@ from .const import (
 )
 from .venue import build_query, covers, pick_name
 
+if TYPE_CHECKING:
+    from .track_store import TrackStore
+
 _LOGGER = logging.getLogger(__name__)
 
 # Re-exported so the rest of the integration keeps importing from one place.
 __all__ = ["Address", "Geocoder", "cache_key", "merge_venue", "parse"]
 
-_TTL_SECONDS = CACHE_TTL_DAYS * 24 * 60 * 60
-
 
 class Geocoder:
     """One queue, one cache, one place that talks to Nominatim."""
 
-    def __init__(self, hass: HomeAssistant, session: ClientSession, email: str | None) -> None:
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        session: ClientSession,
+        email: str | None,
+        store: TrackStore,
+    ) -> None:
         self._hass = hass
         self._session = session
         self._email = email
-        self._store: Store[dict[str, Any]] = Store(hass, STORAGE_VERSION, STORAGE_KEY)
+        self._store = store
+        #: The file the cache lived in before it moved into the database.
+        self._legacy: Store[dict[str, Any]] = Store(hass, STORAGE_VERSION, STORAGE_KEY)
         self._cache: dict[str, dict[str, Any]] = {}
+        #: Keys changed since the last write; only these go to the database.
+        self._changed: set[str] = set()
         # Serialises the requests. Without it a dashboard opening with twelve
         # stays would fire twelve lookups in the same tick.
         self._lock = asyncio.Lock()
@@ -74,27 +89,39 @@ class Geocoder:
         #: Instances that could not be reached, and until when to skip them.
         self._venue_dead: dict[str, float] = {}
         self._save_handle: asyncio.TimerHandle | None = None
-        self._dirty = False
 
     async def async_load(self) -> None:
-        """Read the cache from disk and drop whatever has gone stale."""
-        stored = await self._store.async_load() or {}
-        now = time.time()
-        entries: dict[str, dict[str, Any]] = stored.get("entries", {})
+        """Read the cache from the database, taking over the old file once."""
         self._cache = {
             key: entry
-            for key, entry in entries.items()
-            if isinstance(entry, dict)
-            and now - entry.get("at", 0) < _TTL_SECONDS
-            and entry.get("schema") == CACHE_SCHEMA
+            for key, entry in (await self._store.async_load_addresses()).items()
+            if isinstance(entry, dict) and entry.get("schema") == CACHE_SCHEMA
         }
+        legacy = await self._legacy.async_load()
+        if legacy:
+            ttl = self._store.address_ttl()
+            now = time.time()
+            taken = {
+                key: entry
+                for key, entry in (legacy.get("entries") or {}).items()
+                if isinstance(entry, dict)
+                and entry.get("schema") == CACHE_SCHEMA
+                and now - entry.get("at", 0) < ttl
+                and key not in self._cache
+            }
+            await self._store.async_save_addresses(taken)
+            self._cache.update(taken)
+            await self._legacy.async_remove()
+            _LOGGER.info("Moved %d cached address(es) into %s", len(taken), self._store.path)
         _LOGGER.debug("Loaded %d cached addresses", len(self._cache))
 
     async def async_save(self) -> None:
-        if not self._dirty:
+        if not self._changed:
             return
-        await self._store.async_save({"entries": self._cache})
-        self._dirty = False
+        changed, self._changed = self._changed, set()
+        await self._store.async_save_addresses(
+            {key: self._cache[key] for key in changed if key in self._cache}
+        )
 
     def cached(self, latitude: float, longitude: float) -> Address | None:
         entry = self._cache.get(cache_key(latitude, longitude))
@@ -159,7 +186,7 @@ class Geocoder:
 
         if address is not None:
             self._cache[key] = stored
-            self._dirty = True
+            self._changed.add(key)
             self._schedule_save()
 
         endgueltig = merge_venue(address, venue or "", with_address)

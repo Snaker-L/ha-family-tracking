@@ -28,12 +28,20 @@ from .const import CARD_FILENAME, CARD_URL_BASE, DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
 
+#: Own key rather than a flag inside `hass.data[DOMAIN]`.
+#:
+#: That dict holds one entry per config entry, and code that walks its values
+#: expects dicts. A bool sitting among them went unnoticed only because it was
+#: added after the entry and the walk stopped early -- until a reload popped the
+#: entry and left the bool in front. Keeping it apart removes the trap.
+STATIC_REGISTERED = f"{DOMAIN}_static_registered"
+
 
 async def async_register_card(hass: HomeAssistant, version: str) -> None:
     """Serve the bundle and make sure the dashboard loads it."""
     url = f"{CARD_URL_BASE}/{CARD_FILENAME}?v={version}"
 
-    if not hass.data.get(DOMAIN, {}).get("_static_registered"):
+    if not hass.data.get(STATIC_REGISTERED):
         directory = Path(__file__).parent / "www"
         if not (directory / CARD_FILENAME).is_file():
             _LOGGER.error("Card bundle missing in %s -- the card will not load", directory)
@@ -41,7 +49,7 @@ async def async_register_card(hass: HomeAssistant, version: str) -> None:
         await hass.http.async_register_static_paths(
             [StaticPathConfig(CARD_URL_BASE, str(directory), cache_headers=False)]
         )
-        hass.data.setdefault(DOMAIN, {})["_static_registered"] = True
+        hass.data[STATIC_REGISTERED] = True
 
     await _async_register_resource(hass, url)
 

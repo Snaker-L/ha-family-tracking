@@ -12,6 +12,9 @@
     "person",
     "websocket_api"
   ],
+  "after_dependencies": [
+    "recorder"
+  ],
   "documentation": "https://github.com/Snaker-L/ha-family-tracking",
   "integration_type": "service",
   "iot_class": "cloud_polling",

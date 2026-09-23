@@ -10,10 +10,10 @@ DOMAIN: Final = "family_tracking"
 
 CONF_PERSONS: Final = "persons"
 CONF_EMAIL: Final = "geocode_email"
-CONF_LANGUAGE: Final = "language"
 CONF_MAX_ACCURACY: Final = "max_accuracy"
 CONF_HOME_ZONE: Final = "home_zone"
 CONF_GEOCODE: Final = "geocode"
+CONF_KEEP: Final = "keep"
 
 # --- defaults ---------------------------------------------------------------
 
@@ -26,6 +26,20 @@ DEFAULT_MAX_ACCURACY: Final = 100
 ZERO_ACCURACY_IS_UNKNOWN: Final = True
 
 DEFAULT_HOME_ZONE: Final = "zone.home"
+
+#: How long the integration keeps positions for the timeline, stored as an
+#: amount and a unit: "10d", "3m", "2y". Ten days is what the recorder keeps by
+#: default.
+KEEP_UNITS: Final = ("d", "m", "y")
+DEFAULT_KEEP: Final = "10d"
+
+#: What the list offers. Anything else can be typed, e.g. "40 Tage".
+KEEP_SUGGESTIONS: Final = (
+    ["10d"] + [f"{months}m" for months in range(1, 13)] + [f"{years}y" for years in range(1, 9)]
+)
+
+#: Past this the setting stops being a retention and becomes a typo.
+MAX_KEEP_MONTHS: Final = 20 * 12
 
 #: How long a person stays marked as just arrived or just left. Long enough to
 #: drive an automation from it, short enough not to lie about the present.
@@ -64,7 +78,9 @@ MIN_REQUEST_INTERVAL: Final = 1.1
 #: coarse enough that standing still does not produce a new lookup every minute.
 CACHE_PRECISION: Final = 4
 
-CACHE_TTL_DAYS: Final = 90
+#: Where the address cache lived before it moved into the integration's
+#: database; read once to take it over, then removed. How long addresses are
+#: kept is now decided by `TrackStore.address_ttl`.
 STORAGE_KEY: Final = f"{DOMAIN}.geocode_cache"
 STORAGE_VERSION: Final = 1
 

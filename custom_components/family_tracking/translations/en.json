@@ -3,32 +3,89 @@
     "step": {
       "user": {
         "title": "Family Tracking",
-        "description": "Leave the people empty to follow everyone. Nominatim asks for a contact address so it can reach you if something goes wrong.",
+        "description": "This integration provides the sensors, resolves the addresses and stores the positions for the card's timeline. Which people a card shows is set on the dashboard.\n\n**Position history:** stored since {store_since}, currently {store_size}. The positions live in a file of their own (`family_tracking.db`) in the config folder, apart from Home Assistant's database, whose retention for every other device stays as it is.",
         "data": {
-          "persons": "People to follow",
+          "persons": "People with their own sensors",
+          "keep": "Keep position history for",
           "geocode": "Resolve addresses (Nominatim)",
           "geocode_email": "Contact address for Nominatim",
-          "max_accuracy": "Ignore fixes worse than",
-          "home_zone": "Home zone",
-          "language": "Address language (empty = your Home Assistant language)"
+          "max_accuracy": "Discard GPS fixes worse than",
+          "home_zone": "Home zone"
+        },
+        "data_description": {
+          "persons": "Each of these people gets two sensors: location and distance from home. Everyone is ticked to begin with; as long as everyone stays ticked, anybody added later gets their sensors too. The card's own selection is independent — leaving somebody out here does not remove them from the card, it only takes away their sensors.",
+          "keep": "Pick from the list or type your own: a number and d (days), m (months) or y (years), e.g. “40 d”, “18 m” or “3 y”. Written out works too. Older positions are deleted every night; a shorter period deletes what lies beyond it as soon as it is saved. On its first start the integration takes over what Home Assistant still holds – older days cannot be brought back.",
+          "geocode": "Master switch for the whole instance, the card included. Off means not a single request to Nominatim. Stays then carry zone names, or coordinates.",
+          "geocode_email": "Sent along as the `email` parameter. Nominatim's usage policy asks for it so they can reach you about a problem instead of blocking you.",
+          "max_accuracy": "The smaller the value, the stricter: only accurate fixes count, but more are left out – indoors, for instance – and the track gets gaps. The larger, the more inaccurate points get through. Applies to the live position, the sensors and the card's timeline. Crossing into a zone always counts. Every fix is stored; a higher value brings hidden points back.",
+          "home_zone": "The reference point for the distance sensor and for what counts as home."
         }
       }
     },
-    "abort": { "already_configured": "Family Tracking is already set up." }
+    "abort": {
+      "already_configured": "Family Tracking is already set up."
+    },
+    "error": {
+      "keep_too_long": "That is too long – at most 20 years (20 y, 240 m or 7300 d).",
+      "keep_no_number": "The number at the start is missing. Please type a whole number from 1 followed by d, m or y, e.g. “40 d”.",
+      "keep_whole_number": "“{typed}” is not a whole number. Please leave out the decimals, e.g. “18 m” instead of “1.5 y”.",
+      "keep_unknown_unit": "“{typed}” is not a unit. Use d (days), m (months) or y (years), e.g. “40 d”, “18 m” or “3 y”."
+    }
   },
   "options": {
     "step": {
       "init": {
         "title": "Family Tracking",
-        "description": "Leave the people empty to follow everyone.",
+        "description": "This integration provides the sensors, resolves the addresses and stores the positions for the card's timeline. Which people a card shows is set on the dashboard.\n\n**Position history:** stored since {store_since}, currently {store_size}. The positions live in a file of their own (`family_tracking.db`) in the config folder, apart from Home Assistant's database, whose retention for every other device stays as it is.",
         "data": {
-          "persons": "People to follow",
+          "persons": "People with their own sensors",
+          "keep": "Keep position history for",
           "geocode": "Resolve addresses (Nominatim)",
           "geocode_email": "Contact address for Nominatim",
-          "max_accuracy": "Ignore fixes worse than",
-          "home_zone": "Home zone",
-          "language": "Address language (empty = your Home Assistant language)"
+          "max_accuracy": "Discard GPS fixes worse than",
+          "home_zone": "Home zone"
+        },
+        "data_description": {
+          "persons": "Each of these people gets two sensors: location and distance from home. Everyone is ticked to begin with; as long as everyone stays ticked, anybody added later gets their sensors too. The card's own selection is independent — leaving somebody out here does not remove them from the card, it only takes away their sensors.",
+          "keep": "Pick from the list or type your own: a number and d (days), m (months) or y (years), e.g. “40 d”, “18 m” or “3 y”. Written out works too. Older positions are deleted every night; a shorter period deletes what lies beyond it as soon as it is saved. On its first start the integration takes over what Home Assistant still holds – older days cannot be brought back.",
+          "geocode": "Master switch for the whole instance, the card included. Off means not a single request to Nominatim. Stays then carry zone names, or coordinates.",
+          "geocode_email": "Sent along as the `email` parameter. Nominatim's usage policy asks for it so they can reach you about a problem instead of blocking you.",
+          "max_accuracy": "The smaller the value, the stricter: only accurate fixes count, but more are left out – indoors, for instance – and the track gets gaps. The larger, the more inaccurate points get through. Applies to the live position, the sensors and the card's timeline. Crossing into a zone always counts. Every fix is stored; a higher value brings hidden points back.",
+          "home_zone": "The reference point for the distance sensor and for what counts as home."
         }
+      }
+    },
+    "error": {
+      "keep_too_long": "That is too long – at most 20 years (20 y, 240 m or 7300 d).",
+      "keep_no_number": "The number at the start is missing. Please type a whole number from 1 followed by d, m or y, e.g. “40 d”.",
+      "keep_whole_number": "“{typed}” is not a whole number. Please leave out the decimals, e.g. “18 m” instead of “1.5 y”.",
+      "keep_unknown_unit": "“{typed}” is not a unit. Use d (days), m (months) or y (years), e.g. “40 d”, “18 m” or “3 y”."
+    }
+  },
+  "selector": {
+    "keep": {
+      "options": {
+        "10d": "10 days (Home Assistant default)",
+        "1m": "1 month",
+        "2m": "2 months",
+        "3m": "3 months",
+        "4m": "4 months",
+        "5m": "5 months",
+        "6m": "6 months",
+        "7m": "7 months",
+        "8m": "8 months",
+        "9m": "9 months",
+        "10m": "10 months",
+        "11m": "11 months",
+        "12m": "12 months",
+        "1y": "1 year",
+        "2y": "2 years",
+        "3y": "3 years",
+        "4y": "4 years",
+        "5y": "5 years",
+        "6y": "6 years",
+        "7y": "7 years",
+        "8y": "8 years"
       }
     }
   }

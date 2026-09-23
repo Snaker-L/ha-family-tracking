@@ -84,6 +84,22 @@ class FamilyTrackingCoordinator:
     # -- wiring --------------------------------------------------------------
 
     @property
+    def geocode_enabled(self) -> bool:
+        """
+        Whether this instance may ask Nominatim at all.
+
+        Read by the websocket command as well as by this coordinator: the
+        setting is about the installation, not about one consumer of it, so a
+        card must not be able to route around it.
+        """
+        return self._geocode
+
+    @property
+    def max_accuracy(self) -> float:
+        """The worst accuracy a fix may report and still move somebody."""
+        return self._max_accuracy
+
+    @property
     def person_ids(self) -> list[str]:
         """
         The persons to follow: the ones configured, otherwise every one there is.

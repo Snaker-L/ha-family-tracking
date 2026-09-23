@@ -3,34 +3,89 @@
     "step": {
       "user": {
         "title": "Family Tracking",
-        "description": "Ohne Auswahl werden alle Personen verfolgt. Nominatim bittet um eine Kontaktadresse, damit man dich erreichen kann, wenn etwas schiefläuft.",
+        "description": "Diese Integration liefert die Sensoren, löst die Adressen auf und speichert die Standorte für den Zeitstrahl der Karte. Welche Personen eine Karte zeigt, wird im Dashboard eingestellt.\n\n**Standortverlauf:** gespeichert seit {store_since}, derzeit {store_size}. Die Standorte liegen in einer eigenen Datei (`family_tracking.db`) im Konfigurationsordner, getrennt von der Datenbank von Home Assistant. Deren Aufbewahrung für alle anderen Geräte bleibt unverändert.",
         "data": {
-          "persons": "Zu verfolgende Personen",
+          "persons": "Personen mit eigenen Sensoren",
+          "keep": "Standortverlauf aufbewahren",
           "geocode": "Adressen auflösen (Nominatim)",
           "geocode_email": "Kontaktadresse für Nominatim",
-          "max_accuracy": "Messungen verwerfen ab",
-          "home_zone": "Heimzone",
-          "language": "Sprache der Adressen (leer = Sprache von Home Assistant)"
+          "max_accuracy": "GPS-Messungen verwerfen ab",
+          "home_zone": "Heimzone"
+        },
+        "data_description": {
+          "persons": "Für jede dieser Personen entstehen zwei Sensoren: Ort und Entfernung von zuhause. Vorausgewählt sind alle; solange alle ausgewählt bleiben, bekommt auch jemand, der später hinzukommt, automatisch seine Sensoren. Die Auswahl in der Karte ist davon unabhängig — wer hier fehlt, verschwindet nicht aus der Karte, sondern verliert nur seine Sensoren.",
+          "keep": "Aus der Liste wählen oder selbst eintippen: eine Zahl und T (Tage), M (Monate) oder J (Jahre), z. B. „40 T“, „18 M“ oder „3 J“. Ausgeschrieben geht auch. Ältere Standorte werden jede Nacht gelöscht; eine kürzere Dauer löscht beim Speichern sofort, was darüber hinausgeht. Beim ersten Start übernimmt die Integration, was Home Assistant noch im Verlauf hat – ältere Tage lassen sich nicht zurückholen.",
+          "geocode": "Hauptschalter für die ganze Instanz, die Karte eingeschlossen. Aus heißt: keine einzige Anfrage an Nominatim. Aufenthalte tragen dann Zonennamen, sonst Koordinaten.",
+          "geocode_email": "Wird als `email`-Parameter mitgeschickt. Nominatims Nutzungsrichtlinie bittet darum, damit man dich bei Problemen erreichen kann, statt dich zu sperren.",
+          "max_accuracy": "Je kleiner der Wert, desto strenger: Nur genaue Messungen zählen, dafür fallen mehr weg – etwa in Gebäuden – und die Spur bekommt Lücken. Je größer, desto mehr ungenaue Punkte kommen durch. Gilt für die Live-Position, die Sensoren und den Zeitstrahl der Karte. Ein Zonenwechsel zählt immer. Gespeichert werden alle Messungen; ein höherer Wert zeigt ausgeblendete Punkte wieder.",
+          "home_zone": "Bezugspunkt für den Entfernungssensor und dafür, was als „zuhause\" gilt."
         }
       }
     },
     "abort": {
       "already_configured": "Family Tracking ist bereits eingerichtet."
+    },
+    "error": {
+      "keep_too_long": "Das ist zu lang – höchstens 20 Jahre (20 J, 240 M oder 7300 T).",
+      "keep_no_number": "Am Anfang fehlt die Zahl. Bitte eine ganze Zahl ab 1 und dahinter T, M oder J eintippen, z. B. „40 T“.",
+      "keep_whole_number": "„{typed}“ ist keine ganze Zahl. Bitte ohne Komma, z. B. „18 M“ statt „1,5 J“.",
+      "keep_unknown_unit": "„{typed}“ ist keine Einheit. Erlaubt sind T (Tage), M (Monate) oder J (Jahre), z. B. „40 T“, „18 M“ oder „3 J“."
     }
   },
   "options": {
     "step": {
       "init": {
         "title": "Family Tracking",
-        "description": "Ohne Auswahl werden alle Personen verfolgt.",
+        "description": "Diese Integration liefert die Sensoren, löst die Adressen auf und speichert die Standorte für den Zeitstrahl der Karte. Welche Personen eine Karte zeigt, wird im Dashboard eingestellt.\n\n**Standortverlauf:** gespeichert seit {store_since}, derzeit {store_size}. Die Standorte liegen in einer eigenen Datei (`family_tracking.db`) im Konfigurationsordner, getrennt von der Datenbank von Home Assistant. Deren Aufbewahrung für alle anderen Geräte bleibt unverändert.",
         "data": {
-          "persons": "Zu verfolgende Personen",
+          "persons": "Personen mit eigenen Sensoren",
+          "keep": "Standortverlauf aufbewahren",
           "geocode": "Adressen auflösen (Nominatim)",
           "geocode_email": "Kontaktadresse für Nominatim",
-          "max_accuracy": "Messungen verwerfen ab",
-          "home_zone": "Heimzone",
-          "language": "Sprache der Adressen (leer = Sprache von Home Assistant)"
+          "max_accuracy": "GPS-Messungen verwerfen ab",
+          "home_zone": "Heimzone"
+        },
+        "data_description": {
+          "persons": "Für jede dieser Personen entstehen zwei Sensoren: Ort und Entfernung von zuhause. Vorausgewählt sind alle; solange alle ausgewählt bleiben, bekommt auch jemand, der später hinzukommt, automatisch seine Sensoren. Die Auswahl in der Karte ist davon unabhängig — wer hier fehlt, verschwindet nicht aus der Karte, sondern verliert nur seine Sensoren.",
+          "keep": "Aus der Liste wählen oder selbst eintippen: eine Zahl und T (Tage), M (Monate) oder J (Jahre), z. B. „40 T“, „18 M“ oder „3 J“. Ausgeschrieben geht auch. Ältere Standorte werden jede Nacht gelöscht; eine kürzere Dauer löscht beim Speichern sofort, was darüber hinausgeht. Beim ersten Start übernimmt die Integration, was Home Assistant noch im Verlauf hat – ältere Tage lassen sich nicht zurückholen.",
+          "geocode": "Hauptschalter für die ganze Instanz, die Karte eingeschlossen. Aus heißt: keine einzige Anfrage an Nominatim. Aufenthalte tragen dann Zonennamen, sonst Koordinaten.",
+          "geocode_email": "Wird als `email`-Parameter mitgeschickt. Nominatims Nutzungsrichtlinie bittet darum, damit man dich bei Problemen erreichen kann, statt dich zu sperren.",
+          "max_accuracy": "Je kleiner der Wert, desto strenger: Nur genaue Messungen zählen, dafür fallen mehr weg – etwa in Gebäuden – und die Spur bekommt Lücken. Je größer, desto mehr ungenaue Punkte kommen durch. Gilt für die Live-Position, die Sensoren und den Zeitstrahl der Karte. Ein Zonenwechsel zählt immer. Gespeichert werden alle Messungen; ein höherer Wert zeigt ausgeblendete Punkte wieder.",
+          "home_zone": "Bezugspunkt für den Entfernungssensor und dafür, was als „zuhause\" gilt."
         }
+      }
+    },
+    "error": {
+      "keep_too_long": "Das ist zu lang – höchstens 20 Jahre (20 J, 240 M oder 7300 T).",
+      "keep_no_number": "Am Anfang fehlt die Zahl. Bitte eine ganze Zahl ab 1 und dahinter T, M oder J eintippen, z. B. „40 T“.",
+      "keep_whole_number": "„{typed}“ ist keine ganze Zahl. Bitte ohne Komma, z. B. „18 M“ statt „1,5 J“.",
+      "keep_unknown_unit": "„{typed}“ ist keine Einheit. Erlaubt sind T (Tage), M (Monate) oder J (Jahre), z. B. „40 T“, „18 M“ oder „3 J“."
+    }
+  },
+  "selector": {
+    "keep": {
+      "options": {
+        "10d": "10 Tage (Standard von Home Assistant)",
+        "1m": "1 Monat",
+        "2m": "2 Monate",
+        "3m": "3 Monate",
+        "4m": "4 Monate",
+        "5m": "5 Monate",
+        "6m": "6 Monate",
+        "7m": "7 Monate",
+        "8m": "8 Monate",
+        "9m": "9 Monate",
+        "10m": "10 Monate",
+        "11m": "11 Monate",
+        "12m": "12 Monate",
+        "1y": "1 Jahr",
+        "2y": "2 Jahre",
+        "3y": "3 Jahre",
+        "4y": "4 Jahre",
+        "5y": "5 Jahre",
+        "6y": "6 Jahre",
+        "7y": "7 Jahre",
+        "8y": "8 Jahre"
       }
     }
   }
