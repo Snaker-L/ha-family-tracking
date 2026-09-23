@@ -10,6 +10,8 @@ import {
   sanitizePoints,
   staysOf,
   type Stay,
+  dropInaccurate,
+  rezonePoints,
 } from "../../src/stay-points.ts";
 import { HOME_LAT, HOME_LON, eastOf, minutes, northOf, point } from "./helpers.ts";
 
@@ -210,3 +212,84 @@ describe("pathLength", () => {
 /** Keeps the Stay type referenced so the test file type-checks as written. */
 const _typeCheck: Stay["source"] = "zone";
 void _typeCheck;
+
+describe("dropInaccurate", () => {
+  const fix = (t: number, accuracy: number | undefined, zone = "not_home") => ({
+    t,
+    lat: 48.2,
+    lon: 16.3,
+    accuracy,
+    zone,
+  });
+
+  it("lässt Messungen weg, die ungenauer sind als der Grenzwert", () => {
+    const kept = dropInaccurate([fix(1, 10), fix(2, 800), fix(3, 100)], 100);
+    assert.deepEqual(
+      kept.map((p) => p.t),
+      [1, 3]
+    );
+  });
+
+  it("behält Messungen ohne Angabe zur Genauigkeit", () => {
+    assert.equal(dropInaccurate([fix(1, undefined)], 100).length, 1);
+  });
+
+  it("behält einen Zonenwechsel, auch wenn er ungenau ist", () => {
+    // Wie bei der Live-Position: Der Tracker hat die Grenze überschritten.
+    const kept = dropInaccurate([fix(1, 10, "not_home"), fix(2, 900, "home"), fix(3, 900, "home")], 100);
+    assert.deepEqual(
+      kept.map((p) => p.t),
+      [1, 2]
+    );
+  });
+
+  it("filtert nicht, solange die Integration keinen Grenzwert nennt", () => {
+    const points = [fix(1, 5000)];
+    assert.equal(dropInaccurate(points, undefined), points);
+  });
+});
+
+describe("rezonePoints", () => {
+  // Stephansplatz und ein Punkt rund 300 m östlich davon.
+  const home = { state: "home", lat: 48.2085, lon: 16.3731, radius: 100 };
+  const at = (lat: number, lon: number, zone: string, accuracy = 10) => ({
+    t: 1,
+    lat,
+    lon,
+    accuracy,
+    zone,
+  });
+
+  it("gibt einer umbenannten Zone den heutigen Namen", () => {
+    const office = { state: "Arbeit", lat: 48.2085, lon: 16.3771, radius: 100 };
+    const [point] = rezonePoints([at(48.2085, 16.3771, "Büro")], [home, office]);
+    assert.equal(point.zone, "Arbeit");
+  });
+
+  it("macht aus einer gelöschten Zone wieder einen Ort draußen", () => {
+    const [point] = rezonePoints([at(48.2085, 16.3771, "Büro")], [home]);
+    assert.equal(point.zone, "not_home");
+  });
+
+  it("wendet eine neue Zone auch auf frühere Besuche an", () => {
+    const [point] = rezonePoints([at(48.2086, 16.3732, "not_home")], [home]);
+    assert.equal(point.zone, "home");
+  });
+
+  it("rechnet die Genauigkeit ein wie Home Assistant", () => {
+    // 300 m entfernt, Radius 100 m: erst mit mehr als 200 m Ungenauigkeit drinnen.
+    assert.equal(rezonePoints([at(48.2085, 16.3771, "x", 150)], [home])[0].zone, "not_home");
+    assert.equal(rezonePoints([at(48.2085, 16.3771, "x", 250)], [home])[0].zone, "home");
+  });
+
+  it("nimmt bei zwei Zonen die nähere", () => {
+    const big = { state: "Viertel", lat: 48.2085, lon: 16.3771, radius: 2000 };
+    const [point] = rezonePoints([at(48.2085, 16.3732, "x")], [big, home]);
+    assert.equal(point.zone, "home");
+  });
+
+  it("lässt unveränderte Punkte unangetastet", () => {
+    const points = [at(48.2085, 16.3731, "home")];
+    assert.equal(rezonePoints(points, [home])[0], points[0]);
+  });
+});

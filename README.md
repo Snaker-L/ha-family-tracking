@@ -97,12 +97,12 @@ Set at install and changeable afterwards under *Configure*:
 
 | Option | Default | Meaning |
 |---|---|---|
-| People to follow | everyone | Which `person` entities to watch |
+| People with their own sensors | everyone | Which `person` entities get location and distance sensors; everyone ticked includes people added later |
+| Keep position history for | 10 days | Any number of days, months or years (up to 20 years); kept by the integration in `family_tracking.db`, independent of the recorder |
 | Resolve addresses | on | Reverse geocode positions outside a zone |
 | Contact address | – | Passed to Nominatim, as their usage policy asks |
-| Ignore fixes worse than | 100 m | Above this a fix says more about the radio than the person |
+| Ignore fixes worse than | 100 m | Above this a fix says more about the radio than the person; applies to the live position, the sensors and the timeline, zone changes always count |
 | Home zone | `zone.home` | Used for distance and direction |
-| Address language | your HA language | Two-letter code |
 
 ## Card options
 
@@ -136,8 +136,18 @@ Tile styles — `street_style`: `osm`, `esri_gray` (follows your theme),
 
 ## Good to know
 
-- **The recorder keeps 10 days by default**, so longer ranges come up empty.
-  Raise `purge_keep_days` if you need more.
+- **The timeline reaches back as far as the integration keeps positions** —
+  10 days unless set otherwise. It stores them in its own file,
+  `family_tracking.db` in the config folder, so the recorder's retention for
+  everything else stays untouched. On its first start it takes over what the
+  recorder still holds; older days cannot be brought back.
+- **Addresses are kept as long as the positions**, at least 90 days, in the same
+  file — so an old month opens with its street names instead of a queue of
+  lookups at one per second.
+- **The timeline uses today's zones.** Which zone a past position lies in is
+  worked out from its coordinates and the zones as they are set up now, so a
+  renamed zone reads the same everywhere, a deleted one gives way to the
+  address, and a new one applies to earlier visits too.
 - **A stay inside a zone is exact** — arrival and departure come from the state
   changes. Only the parts outside any zone are clustered.
 - **A stay is one circle, not a tangle of points.** Three hours of wandering a

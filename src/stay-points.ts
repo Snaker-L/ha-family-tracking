@@ -116,6 +116,63 @@ function makeStay(
   return { kind: "stay", start, end, lat, lon, zone, source, samples: members.length, spread };
 }
 
+/** A zone as Home Assistant has it set up right now. */
+export interface ZoneShape {
+  /** What a person's state reads inside it: `home`, or the zone's name. */
+  state: string;
+  lat: number;
+  lon: number;
+  radius: number;
+}
+
+/**
+ * Puts every position into the zone it lies in today, not the one it was
+ * recorded in.
+ *
+ * The stored state is the zone as it was named and drawn at the time, so a
+ * renamed zone kept its old name, a deleted one hid the address behind a name
+ * that no longer existed, and a new one never applied to earlier visits. The
+ * rule is Home Assistant's own: inside when the distance to the centre minus
+ * the radius is less than the fix's accuracy; the nearest zone wins, the
+ * smaller one on a tie. A position lying in no zone is `not_home`.
+ */
+export function rezonePoints(points: TrackPoint[], zones: ZoneShape[]): TrackPoint[] {
+  return points.map((point) => {
+    let best: ZoneShape | undefined;
+    let bestDistance = Infinity;
+    for (const zone of zones) {
+      const distance = haversine(point.lat, point.lon, zone.lat, zone.lon);
+      if (!(distance - zone.radius < (point.accuracy ?? 0))) continue;
+      if (distance < bestDistance || (distance === bestDistance && best && zone.radius < best.radius)) {
+        best = zone;
+        bestDistance = distance;
+      }
+    }
+    const zone = best ? best.state : "not_home";
+    return zone === point.zone ? point : { ...point, zone };
+  });
+}
+
+/**
+ * Leaves out fixes the integration would not let move the live position.
+ *
+ * The same rule as there, so map and sensors tell the same story: a fix
+ * reporting a worse accuracy than `maxAccuracy` goes, one without an accuracy
+ * stays, and one that crosses into another zone stays whatever its accuracy --
+ * the tracker saw the boundary crossed, which the zone-based stays depend on.
+ * Expects the points in time order.
+ */
+export function dropInaccurate(points: TrackPoint[], maxAccuracy?: number): TrackPoint[] {
+  if (maxAccuracy === undefined) return points;
+  const kept: TrackPoint[] = [];
+  for (const point of points) {
+    const accurate = point.accuracy === undefined || point.accuracy <= maxAccuracy;
+    const crossing = kept.length > 0 && point.zone !== kept[kept.length - 1].zone;
+    if (accurate || crossing) kept.push(point);
+  }
+  return kept;
+}
+
 /**
  * Anchor-based stay-point detection: walk the samples chronologically and grow a
  * group as long as the following samples stay within `radius` of the group

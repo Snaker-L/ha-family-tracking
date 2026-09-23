@@ -22,8 +22,16 @@ import {
   type TimeRange,
 } from "./const";
 import { fetchPersonHistory, HistoryError, withCurrentState } from "./history";
-import { buildTimeline, staysOf, type Segment, type Stay } from "./stay-points";
-import { cacheKeyFor, reverseGeocode } from "./geocode";
+import {
+  buildTimeline,
+  dropInaccurate,
+  rezonePoints,
+  staysOf,
+  type Segment,
+  type Stay,
+  type ZoneShape,
+} from "./stay-points";
+import { cacheKeyFor, fetchServerSettings, reverseGeocode } from "./geocode";
 import {
   dayRole,
   firstDayOfWeek,
@@ -117,6 +125,12 @@ export class FamilyTrackingCard extends LitElement {
   /** Last seen state per person, to spot a live position without a reload. */
   private _stamps: Record<string, string> = {};
   private _loadToken = 0;
+  /**
+   * The integration's accuracy limit, asked for once before the first load so
+   * the timeline leaves out what the live position refuses.
+   */
+  private _settings?: Promise<number | undefined>;
+  private _maxAccuracy?: number;
   private _restoreView?: { center: [number, number]; zoom: number };
   private _resizeFrame?: number;
   /**
@@ -443,6 +457,12 @@ export class FamilyTrackingCard extends LitElement {
     this._loading = true;
     this._error = undefined;
 
+    this._settings ??= fetchServerSettings(this.hass.callWS?.bind(this.hass)).then(
+      (settings) => settings.maxAccuracy
+    );
+    this._maxAccuracy = await this._settings;
+    if (token !== this._loadToken) return;
+
     const end = this._range ? new Date(this._range.end) : new Date();
     const start = this._range
       ? new Date(this._range.start)
@@ -491,7 +511,31 @@ export class FamilyTrackingCard extends LitElement {
     void this._resolveLabels(this._loadToken);
   }
 
-  private _trackOf(points: TrackPoint[]): PersonTrack {
+  /** The zones as set up today, in the form `rezonePoints` compares against. */
+  private _currentZones(): ZoneShape[] {
+    const zones: ZoneShape[] = [];
+    for (const [entityId, entity] of Object.entries(this.hass?.states ?? {})) {
+      if (!entityId.startsWith("zone.") || entity.state === "unavailable") continue;
+      const { latitude, longitude, radius, passive, friendly_name } = entity.attributes;
+      // Passive zones never become a person's state, so they do not here either.
+      if (passive) continue;
+      const lat = Number(latitude);
+      const lon = Number(longitude);
+      const r = Number(radius);
+      if (!Number.isFinite(lat) || !Number.isFinite(lon) || !Number.isFinite(r)) continue;
+      zones.push({
+        state: entityId === "zone.home" ? "home" : String(friendly_name ?? entityId.slice(5)),
+        lat,
+        lon,
+        radius: r,
+      });
+    }
+    return zones;
+  }
+
+  private _trackOf(raw: TrackPoint[]): PersonTrack {
+    // Zones first: which fixes cross a boundary decides what survives below.
+    const points = dropInaccurate(rezonePoints(raw, this._currentZones()), this._maxAccuracy);
     return {
       points,
       current: points[points.length - 1],
