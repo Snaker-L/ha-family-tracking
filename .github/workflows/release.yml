@@ -47,6 +47,6 @@ jobs:
         # Pinned to a commit, not a tag. A tag can be moved to point at
         # different code; this is the one third-party action here and it runs
         # with write access to the releases. Dependabot keeps the pin current.
-        uses: softprops/action-gh-release@e598afbe1493e6b1bafb1f389cabb956eab91231 # v3.0.3
+        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         with:
           files: family_tracking.zip
