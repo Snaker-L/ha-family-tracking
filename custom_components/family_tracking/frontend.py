@@ -43,7 +43,9 @@ async def async_register_card(hass: HomeAssistant, version: str) -> None:
 
     if not hass.data.get(STATIC_REGISTERED):
         directory = Path(__file__).parent / "www"
-        if not (directory / CARD_FILENAME).is_file():
+        # A stat is still disk I/O, and this runs on the event loop during
+        # setup -- on an SD card or a network mount it would stall everything.
+        if not await hass.async_add_executor_job((directory / CARD_FILENAME).is_file):
             _LOGGER.error("Card bundle missing in %s -- the card will not load", directory)
             return
         await hass.http.async_register_static_paths(
