@@ -1,6 +1,6 @@
 # Family Tracking
 
-[![HACS Custom](https://img.shields.io/badge/HACS-Custom-41BDF5.svg?logo=home-assistant&logoColor=white)](https://hacs.xyz/docs/faq/custom_repositories)
+[![HACS Default](https://img.shields.io/badge/HACS-Default-41BDF5.svg?logo=home-assistant&logoColor=white)](https://hacs.xyz)
 [![Version](https://img.shields.io/github/v/release/Snaker-L/ha-family-tracking?label=version&color=orange)](https://github.com/Snaker-L/ha-family-tracking/releases)
 [![Last commit](https://img.shields.io/github/last-commit/Snaker-L/ha-family-tracking?label=last%20commit&color=teal)](https://github.com/Snaker-L/ha-family-tracking/commits/main)
 [![License](https://img.shields.io/github/license/Snaker-L/ha-family-tracking?label=license&color=green)](LICENSE)
@@ -53,10 +53,14 @@ list underneath. It opens on today.
 
 [![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=Snaker-L&repository=ha-family-tracking&category=integration)
 
-The button adds this repository to HACS on your own instance; then click
-**Download** and restart Home Assistant. By hand: HACS → ⋮ → *Custom
-repositories* → URL `https://github.com/Snaker-L/ha-family-tracking`,
-category **Integration**.
+Family Tracking is in the HACS default catalog: open HACS, search for
+**Family Tracking**, click **Download** and restart Home Assistant. The button
+above opens the same page in HACS on your own instance.
+
+If the search does not find it (an older HACS, or a catalog that has not been
+refreshed yet), add it as a custom repository instead: HACS → ⋮ → *Custom
+repositories* → URL `https://github.com/Snaker-L/ha-family-tracking`, category
+**Integration**, then **Download** and restart as above.
 
 Then Settings → Devices & services → **Add integration** → *Family Tracking*.
 Leaving the people empty follows everyone, so somebody added later is included
