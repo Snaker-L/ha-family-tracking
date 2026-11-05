@@ -16,6 +16,7 @@ card it manages the same way.
 
 from __future__ import annotations
 
+import hashlib
 import logging
 from pathlib import Path
 
@@ -39,21 +40,36 @@ STATIC_REGISTERED = f"{DOMAIN}_static_registered"
 
 async def async_register_card(hass: HomeAssistant, version: str) -> None:
     """Serve the bundle and make sure the dashboard loads it."""
-    url = f"{CARD_URL_BASE}/{CARD_FILENAME}?v={version}"
+    directory = Path(__file__).parent / "www"
+    # Reading the file is disk I/O, and this runs on the event loop during
+    # setup -- on an SD card or a network mount it would stall everything.
+    digest = await hass.async_add_executor_job(_bundle_digest, directory / CARD_FILENAME)
+    if digest is None:
+        _LOGGER.error("Card bundle missing in %s -- the card will not load", directory)
+        return
+
+    # The version alone is not enough: the bundle is served without cache
+    # headers, and the frontend loads it as a module after the page, so a hard
+    # refresh does not reach it. A rebuilt bundle under an unchanged version --
+    # every build during development -- stayed cached in the browser. The
+    # digest makes each different bundle a different URL.
+    url = f"{CARD_URL_BASE}/{CARD_FILENAME}?v={version}-{digest}"
 
     if not hass.data.get(STATIC_REGISTERED):
-        directory = Path(__file__).parent / "www"
-        # A stat is still disk I/O, and this runs on the event loop during
-        # setup -- on an SD card or a network mount it would stall everything.
-        if not await hass.async_add_executor_job((directory / CARD_FILENAME).is_file):
-            _LOGGER.error("Card bundle missing in %s -- the card will not load", directory)
-            return
         await hass.http.async_register_static_paths(
             [StaticPathConfig(CARD_URL_BASE, str(directory), cache_headers=False)]
         )
         hass.data[STATIC_REGISTERED] = True
 
     await _async_register_resource(hass, url)
+
+
+def _bundle_digest(path: Path) -> str | None:
+    """A short hash of the bundle, or None when it is missing."""
+    try:
+        return hashlib.sha256(path.read_bytes()).hexdigest()[:8]
+    except FileNotFoundError:
+        return None
 
 
 async def _async_register_resource(hass: HomeAssistant, url: str) -> None:
