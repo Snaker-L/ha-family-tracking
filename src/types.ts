@@ -26,6 +26,13 @@ export interface HomeAssistant {
   locale: HassLocale;
   themes?: { darkMode?: boolean };
   config?: { latitude?: number; longitude?: number };
+  /**
+   * Home Assistant's registries as the frontend holds them. Optional because a
+   * test harness or an old frontend may not provide them; the card then falls
+   * back to the person's own name.
+   */
+  entities?: Record<string, { entity_id: string; device_id?: string | null }>;
+  devices?: Record<string, { id: string; name?: string | null; name_by_user?: string | null }>;
   callWS<T>(msg: Record<string, unknown>): Promise<T>;
   callService(domain: string, service: string, data?: Record<string, unknown>): Promise<unknown>;
 }
