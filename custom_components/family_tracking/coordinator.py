@@ -15,6 +15,8 @@ from dataclasses import dataclass, field
 
 from homeassistant.const import ATTR_GPS_ACCURACY, ATTR_LATITUDE, ATTR_LONGITUDE
 from homeassistant.core import Event, EventStateChangedData, HomeAssistant, State, callback
+from homeassistant.helpers import device_registry as dr
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.event import async_track_state_change_event
 from homeassistant.util import dt as dt_util
 from homeassistant.util.location import distance
@@ -22,9 +24,11 @@ from homeassistant.util.location import distance
 from .const import (
     DEFAULT_HOME_ZONE,
     DEFAULT_MAX_ACCURACY,
+    DOMAIN,
     PRESENCE_UNKNOWN,
 )
 from .geocode import Address, Geocoder
+from .people import persons_to_follow
 from .tracker import Fix, bearing, compass_point, direction_of_travel, judge, presence_of
 
 _LOGGER = logging.getLogger(__name__)
@@ -78,8 +82,12 @@ class FamilyTrackingCoordinator:
         self._home_zone = home_zone
         self._language = language
         self._geocode = geocode
-        self._listeners: list[callable] = []
         self._subscribers: list[callable] = []
+        #: The entities the state listener covers, and how to drop it again. A
+        #: person whose state arrives late brings trackers with it that the
+        #: listener has to be widened to.
+        self._watched: list[str] = []
+        self._unwatch: callable | None = None
 
     # -- wiring --------------------------------------------------------------
 
@@ -101,37 +109,61 @@ class FamilyTrackingCoordinator:
 
     @property
     def person_ids(self) -> list[str]:
-        """
-        The persons to follow: the ones configured, otherwise every one there is.
-
-        Defaulting to all of them means a person added to Home Assistant later
-        shows up by itself instead of quietly going missing.
-        """
-        if self._configured_ids:
-            return [pid for pid in self._configured_ids if self.hass.states.get(pid)]
-        return sorted(state.entity_id for state in self.hass.states.async_all("person"))
+        """The persons to follow; see `persons_to_follow`."""
+        registered = [
+            entry.entity_id
+            for entry in er.async_get(self.hass).entities.values()
+            if entry.domain == "person" and entry.disabled_by is None
+        ]
+        present = [state.entity_id for state in self.hass.states.async_all("person")]
+        return persons_to_follow(self._configured_ids, present, registered)
 
     async def async_start(self) -> None:
         for person_id in self.person_ids:
-            state = self.hass.states.get(person_id)
-            if state is None:
+            self.people[person_id] = PersonState(person_id=person_id, name=self._name_of(person_id))
+            if self.hass.states.get(person_id) is None:
+                # Followed all the same; `_handle_change` picks the person up
+                # the moment their state arrives.
+                _LOGGER.debug("%s has no state yet, waiting for it", person_id)
                 continue
-            self.people[person_id] = PersonState(
-                person_id=person_id,
-                name=state.attributes.get("friendly_name") or person_id.split(".")[1],
-            )
             await self._async_seed(person_id)
+        self._watch()
 
+    def _name_of(self, person_id: str) -> str:
+        """
+        The person's name, also while their state is still missing.
+
+        The device would otherwise be renamed to the bare entity id at every
+        start that comes before the person does. The registry knows the name a
+        person had last, and the device the one it was given.
+        """
+        state = self.hass.states.get(person_id)
+        if state is not None and state.attributes.get("friendly_name"):
+            return state.attributes["friendly_name"]
+        entry = er.async_get(self.hass).async_get(person_id)
+        if entry is not None and (entry.name or entry.original_name):
+            return entry.name or entry.original_name
+        device = dr.async_get(self.hass).async_get_device(identifiers={(DOMAIN, person_id)})
+        if device is not None and device.name:
+            return device.name
+        return person_id.split(".")[1]
+
+    def _watch(self) -> None:
+        """Listen to every person and their trackers, replacing any earlier listener."""
         watched = self._watched_entities()
+        if watched == self._watched and self._unwatch is not None:
+            return
+        if self._unwatch is not None:
+            self._unwatch()
+        self._watched = watched
+        self._unwatch = async_track_state_change_event(self.hass, watched, self._handle_change)
         _LOGGER.debug("Watching %d entities for %d people", len(watched), len(self.people))
-        self._listeners.append(
-            async_track_state_change_event(self.hass, watched, self._handle_change)
-        )
 
     async def async_stop(self) -> None:
-        for remove in self._listeners:
-            remove()
-        self._listeners.clear()
+        if self._unwatch is not None:
+            self._unwatch()
+            self._unwatch = None
+        self._watched = []
 
     def subscribe(self, callback_: callable) -> callable:
         """Entities register here to be told when their person moved."""
@@ -180,6 +212,17 @@ class FamilyTrackingCoordinator:
         new_state = event.data["new_state"]
         if new_state is None:
             return
+        entity_id = event.data["entity_id"]
+        if entity_id in self.people and event.data["old_state"] is None:
+            # A person arriving after the start -- through Remote Home
+            # Assistant, say. Their trackers are only known from now on, so
+            # widen the listener and take what those already report.
+            self._watch()
+            self.hass.async_create_task(self._async_seed(entity_id))
+            return
+        if entity_id in self.people:
+            # The trackers assigned to a person can change while running.
+            self._watch()
         for person_id in self.people:
             if event.data["entity_id"] in self._sources_of(person_id):
                 self.hass.async_create_task(self._async_offer(person_id, new_state))
