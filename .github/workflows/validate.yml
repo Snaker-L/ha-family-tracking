@@ -12,6 +12,10 @@ on:
     # valid without anything here changing.
     - cron: "0 5 * * 1"
 
+# Checks only read the repository; nothing here writes to it.
+permissions:
+  contents: read
+
 jobs:
   hacs:
     runs-on: ubuntu-latest
