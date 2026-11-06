@@ -29,6 +29,7 @@ import type { CustomTileLayer } from "./const";
 import { hexToHsv, hsvToHex, pickFromSquare } from "./color";
 import { serverGeocodeEnabled } from "./geocode";
 import { localize } from "./localize";
+import { deviceNameUpdate, personDevices, personNames } from "./person-name";
 import { notePreviewLayer } from "./preview-layer";
 import type {
   FamilyTrackingCardConfig,
@@ -52,6 +53,10 @@ export class FamilyTrackingCardEditor extends LitElement implements LovelaceCard
    * the card's own lookup switches; unknown leaves them as they are.
    */
   @state() private _serverGeocode?: boolean;
+  /** The person whose name is being edited, if any. */
+  @state() private _renaming?: string;
+  /** Why the last rename failed, shown under the list until the next attempt. */
+  @state() private _renameError?: string;
   private _askedServer = false;
 
   /** Short hand for the translations; the language comes from Home Assistant. */
@@ -750,16 +755,87 @@ export class FamilyTrackingCardEditor extends LitElement implements LovelaceCard
     this._emit(merged);
   }
 
-  /** Every person, in the same order as the card shows them. */
-  private get _persons(): { id: string; name: string }[] {
+  /**
+   * Every person, in the same order and under the same name as the card shows
+   * them. `deviceId` is the person's Family Tracking device, which is where a
+   * rename goes; a person the integration does not follow has none.
+   */
+  private get _persons(): { id: string; name: string; deviceId?: string }[] {
     if (!this.hass) return [];
-    return Object.keys(this.hass.states)
-      .filter((id) => id.startsWith("person."))
-      .map((id) => ({
-        id,
-        name: this.hass!.states[id].attributes.friendly_name ?? id.replace("person.", ""),
-      }))
+    const names = personNames(this.hass);
+    const devices = personDevices(this.hass);
+    return [...names]
+      .map(([id, name]) => ({ id, name, deviceId: devices.get(id) }))
       .sort((a, b) => a.name.localeCompare(b.name));
+  }
+
+  /**
+   * Renames a person by naming their device, the same field as Settings →
+   * Devices → Family Tracking. The card, this editor and the device page all
+   * read it from there, so a change in either place shows in the other.
+   *
+   * This takes effect at once and is not part of the card configuration, so
+   * Cancel does not undo it -- the hint above the list says so.
+   */
+  private async _rename(personId: string, deviceId: string, value: string): Promise<void> {
+    this._renaming = undefined;
+    const hass = this.hass;
+    if (!hass) return;
+    const personName =
+      hass.states[personId]?.attributes.friendly_name ?? personId.replace("person.", "");
+    const update = deviceNameUpdate(value, hass.devices?.[deviceId]?.name_by_user, personName);
+    if (!update) return;
+    this._renameError = undefined;
+    try {
+      await hass.callWS({ type: "config/device_registry/update", device_id: deviceId, ...update });
+    } catch (err) {
+      this._renameError = this._t("editor.rename_failed", {
+        error: (err as { message?: string })?.message ?? String(err),
+      });
+    }
+  }
+
+  private _renderName(person: { id: string; name: string; deviceId?: string }): TemplateResult {
+    const deviceId = person.deviceId;
+    if (deviceId && this._renaming === person.id) {
+      return html`<input
+        class="color-name rename"
+        .value=${person.name}
+        aria-label=${this._t("editor.rename_for", { name: person.name })}
+        @keydown=${(ev: KeyboardEvent) => {
+          const input = ev.target as HTMLInputElement;
+          if (ev.key === "Enter") input.blur();
+          else if (ev.key === "Escape") {
+            // Stops the dialog from closing along with the field.
+            ev.stopPropagation();
+            input.dataset.cancelled = "1";
+            this._renaming = undefined;
+          }
+        }}
+        @blur=${(ev: FocusEvent) => {
+          const input = ev.target as HTMLInputElement;
+          if (input.dataset.cancelled) return;
+          void this._rename(person.id, deviceId, input.value);
+        }}
+      />`;
+    }
+    return html`<span class="color-name">${person.name}</span>
+      ${deviceId
+        ? html`<button
+            class="color-reset rename-button"
+            title=${this._t("editor.rename_for", { name: person.name })}
+            @click=${() => {
+              this._renaming = person.id;
+              void this.updateComplete.then(() => {
+                const input = this.renderRoot.querySelector<HTMLInputElement>("input.rename");
+                input?.focus();
+                input?.select();
+              });
+            }}
+          >
+            ✎
+          </button>`
+        : nothing}`;
   }
 
   /**
@@ -797,7 +873,7 @@ export class FamilyTrackingCardEditor extends LitElement implements LovelaceCard
                 configured,
                 (value) => this._setColor(person.id, value)
               )}
-              <span class="color-name">${person.name}</span>
+              ${this._renderName(person)}
               <span class="color-state">${configured ? color : this._t("editor.automatic")}</span>
               <button
                 class="color-reset"
@@ -810,6 +886,9 @@ export class FamilyTrackingCardEditor extends LitElement implements LovelaceCard
             </div>
           `;
         })}
+        ${this._renameError
+          ? html`<div class="colors-hint rename-error">${this._renameError}</div>`
+          : nothing}
       </div>
     `;
   }
@@ -1414,6 +1493,20 @@ export class FamilyTrackingCardEditor extends LitElement implements LovelaceCard
     .color-name {
       flex: 1 1 auto;
       color: var(--primary-text-color);
+    }
+
+    input.color-name.rename {
+      min-width: 0;
+      padding: 4px 6px;
+      border: 1px solid var(--primary-color);
+      border-radius: 6px;
+      background: var(--secondary-background-color, transparent);
+      font: inherit;
+    }
+
+    .rename-error {
+      color: var(--error-color, #db4437);
+      margin: 8px 0 0;
     }
 
     .color-state {

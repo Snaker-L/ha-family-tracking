@@ -42,6 +42,7 @@ import {
   weekdayLabels,
 } from "./calendar";
 import { peekPreviewLayer } from "./preview-layer";
+import { personNames } from "./person-name";
 import { TrackMap, type MapZone, type TileStyleChoice } from "./track-map";
 import { formatCoordinates, formatDistance, formatDuration, formatRange, formatSpan } from "./format";
 import { localize, personStateKey } from "./localize";
@@ -141,7 +142,14 @@ export class FamilyTrackingCard extends LitElement {
   private _personsCache?: {
     states: HomeAssistant["states"];
     config: FamilyTrackingCardConfig | undefined;
+    names: Map<string, string>;
     result: HassEntity[];
+  };
+  private _namesCache?: {
+    states: HomeAssistant["states"];
+    entities: HomeAssistant["entities"];
+    devices: HomeAssistant["devices"];
+    result: Map<string, string>;
   };
   private _visibleCache?: { persons: HassEntity[]; hidden: string[]; result: HassEntity[] };
   private _zoneCache?: {
@@ -246,6 +254,9 @@ export class FamilyTrackingCard extends LitElement {
     if (previous.themes?.darkMode !== next.themes?.darkMode) return true;
     if (previous.locale?.language !== next.locale?.language) return true;
     if (previous.language !== next.language) return true;
+    // A device renamed under Settings → Devices renames its person here. The
+    // registry is replaced as a whole on any change, and changes are rare.
+    if (previous.devices !== next.devices) return true;
     if (previous.states === next.states) return false;
     // The list shows the zone's friendly name, not its state (the head count).
     if (
@@ -309,7 +320,12 @@ export class FamilyTrackingCard extends LitElement {
   private get _persons(): HassEntity[] {
     if (!this.hass) return [];
     const cached = this._personsCache;
-    if (cached && cached.states === this.hass.states && cached.config === this._config) {
+    if (
+      cached &&
+      cached.states === this.hass.states &&
+      cached.config === this._config &&
+      cached.names === this._names
+    ) {
       return cached.result;
     }
 
@@ -319,7 +335,12 @@ export class FamilyTrackingCard extends LitElement {
       .map((id) => this.hass!.states[id])
       .sort((a, b) => this._name(a).localeCompare(this._name(b)));
 
-    this._personsCache = { states: this.hass.states, config: this._config, result };
+    this._personsCache = {
+      states: this.hass.states,
+      config: this._config,
+      names: this._names,
+      result,
+    };
     return result;
   }
 
@@ -339,8 +360,34 @@ export class FamilyTrackingCard extends LitElement {
     return result;
   }
 
+  /** Every person's display name; see `personNames`. */
+  private get _names(): Map<string, string> {
+    const hass = this.hass!;
+    const cached = this._namesCache;
+    if (
+      cached &&
+      cached.states === hass.states &&
+      cached.entities === hass.entities &&
+      cached.devices === hass.devices
+    ) {
+      return cached.result;
+    }
+    const result = personNames(hass);
+    this._namesCache = {
+      states: hass.states,
+      entities: hass.entities,
+      devices: hass.devices,
+      result,
+    };
+    return result;
+  }
+
   private _name(entity: HassEntity): string {
-    return entity.attributes.friendly_name ?? entity.entity_id.split(".")[1];
+    return (
+      this._names.get(entity.entity_id) ??
+      entity.attributes.friendly_name ??
+      entity.entity_id.split(".")[1]
+    );
   }
 
   /**

@@ -147,12 +147,16 @@ const en: Record<string, string> = {
   "editor.people_hint":
     "Without the checkbox a person is not on the card at all — no chip, no track. " +
     "The chips on the card only hide the others temporarily and leave the " +
-    "configuration alone.",
+    "configuration alone. The ✎ renames a person's Family Tracking device straight " +
+    "away, the same name as under Settings → Devices; Cancel does not undo it, " +
+    "and an empty name restores the person's own.",
   "editor.show_on_open": "Show {name} on open",
   "editor.colour_hex": "Own colour, as a hex value",
   "editor.cancel": "Cancel",
   "editor.colour_hue": "Hue",
   "editor.colour_for": "Colour for {name}",
+  "editor.rename_for": "Rename {name}",
+  "editor.rename_failed": "Could not rename: {error}",
   "editor.automatic": "automatic",
   "editor.reset_colour": "Reset to the automatic colour",
   "editor.zones": "Zones",
@@ -275,12 +279,17 @@ const de: Record<string, string> = {
   "editor.people_hint":
     "Ohne Haken erscheint die Person gar nicht in der Karte – weder als Chip noch " +
     "als Spur. Die Chips in der Karte blenden die übrigen Personen nur " +
-    "vorübergehend aus und ändern die Konfiguration nicht.",
+    "vorübergehend aus und ändern die Konfiguration nicht. Der ✎ benennt das " +
+    "Family-Tracking-Gerät der Person sofort um – derselbe Name wie unter " +
+    "Einstellungen → Geräte; Abbrechen nimmt das nicht zurück, ein leerer Name " +
+    "stellt den eigenen Namen der Person wieder her.",
   "editor.show_on_open": "{name} beim Öffnen anzeigen",
   "editor.colour_hex": "Eigene Farbe als Hex-Wert",
   "editor.cancel": "Abbrechen",
   "editor.colour_hue": "Farbton",
   "editor.colour_for": "Farbe für {name}",
+  "editor.rename_for": "{name} umbenennen",
+  "editor.rename_failed": "Umbenennen fehlgeschlagen: {error}",
   "editor.automatic": "automatisch",
   "editor.reset_colour": "Auf die automatische Farbe zurücksetzen",
   "editor.zones": "Zonen",
